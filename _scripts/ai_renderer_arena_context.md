@@ -66,6 +66,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -422,20 +423,86 @@ export default function HomePage() {
 ## Файл: `src/app/api/generate/route.ts`
 
 ```typescript
-// D:\Work\Image test for 3Dims (3 models)\ai-renderer-arena\src\app\api\generate\route.ts
-
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs/promises";
+import path from "path";
 
-// ИЗМЕНЕНИЕ №1: Интерфейс теперь должен учитывать ОБА варианта
+// Гарантируем Node runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// ===== Типы и константы =====
+type ImgExt = "png" | "jpg" | "jpeg" | "webp";
+
+// Учитываем оба варианта изображения в теле запроса
 interface FalRequestBody {
   prompt: string;
   image_url?: string;      // Для Qwen, Flux
-  image_urls?: string[];   // Для Nano Banana
+  image_urls?: string[];   // Для Nano Banana (gemini)
   negative_prompt?: string;
   seed?: number;
   num_inference_steps?: number;
   guidance_scale?: number;
   safety_tolerance?: number;
+}
+
+// Папка автосейва (env > дефолт)
+const SAVE_DIR =
+  process.env.IMAGES_SAVE_PATH ||
+  "D:\\Work\\images from Image test for 3Dims (3 models)";
+
+// Метки для префикса файлов
+const MODEL_LABELS: Record<string, string> = {
+  qwen: "qwen",
+  flux: "flux",
+  gemini: "Nano-Banana",
+};
+
+// ===== Вспомогалки =====
+function inferExt(contentType?: string | null, url?: string): ImgExt {
+  if (contentType) {
+    const ct = contentType.toLowerCase();
+    if (ct.includes("png")) return "png";
+    if (ct.includes("jpeg")) return "jpeg";
+    if (ct.includes("jpg")) return "jpg";
+    if (ct.includes("webp")) return "webp";
+  }
+  if (url) {
+    const m = url.toLowerCase().match(/\.(png|jpe?g|webp)(\?|#|$)/i);
+    if (m) return (m[1].toLowerCase() as ImgExt).replace("jpeg", "jpeg") as ImgExt;
+  }
+  return "png";
+}
+
+function tsForName(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}__${hh}-${mi}-${ss}`;
+}
+
+
+// Возвращает следующий индекс для файлов с префиксом <label><N>
+async function getNextLabelIndex(dir: string, label: string): Promise<number> {
+  try {
+    const files = await fs.readdir(dir).catch(() => []);
+    let max = 0;
+    // Ищем ровно в начале имени: label + число (например, "нано-банано12__...")
+    const re = new RegExp(`^${label.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(\\d+)\\b`, "i");
+    for (const name of files) {
+      const m = name.match(re);
+      if (m) {
+        const n = Number(m[1]);
+        if (!Number.isNaN(n) && n > max) max = n;
+      }
+    }
+    return max + 1;
+  } catch {
+    return 1;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -446,7 +513,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const formData = await req.formData();
-    const model = formData.get("model") as string | null;
+    const model = (formData.get("model") as string | null)?.toLowerCase() || null;
     const prompt = formData.get("prompt") as string | null;
     const negativePrompt = formData.get("negative_prompt") as string | null;
     const imageFile = formData.get("image") as File | null;
@@ -456,76 +523,122 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Отсутствуют обязательные поля" }, { status: 400 });
     }
 
+    // Подготовка входного изображения как data URL
     const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
     const imageUrl = `data:${imageFile.type};base64,${imageBuffer.toString("base64")}`;
 
-    let endpointUrl: string;
+    // Парсим настройки
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
 
-    // Базовое тело запроса без данных об изображении
-    const body: FalRequestBody = {
-      prompt: prompt,
-    };
-    if (negativePrompt) {
-      body.negative_prompt = negativePrompt;
-    }
+    // Базовое тело запроса
+    const body: FalRequestBody = { prompt };
+    if (negativePrompt) body.negative_prompt = negativePrompt;
 
-    // ИЗМЕНЕНИЕ №2: Динамически добавляем поле с изображением в нужном формате
+    // Маршрут и особые поля под конкретную модель
+    let endpointUrl: string;
     switch (model) {
       case "qwen":
-        endpointUrl = 'https://fal.run/fal-ai/qwen-image-edit';
-        body.image_url = imageUrl; // <--- Отправляем как строку
-        body.guidance_scale = settings.guidance_scale;
-        body.num_inference_steps = settings.num_inference_steps;
-        body.seed = settings.seed;
+        endpointUrl = "https://fal.run/fal-ai/qwen-image-edit";
+        body.image_url = imageUrl;
+        if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
+        if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (settings.seed != null) body.seed = settings.seed;
         break;
+
       case "flux":
-        endpointUrl = 'https://fal.run/fal-ai/flux-pro/kontext';
-        body.image_url = imageUrl; // <--- Отправляем как строку
-        body.guidance_scale = settings.guidance_scale;
-        body.safety_tolerance = settings.safety_tolerance;
-        body.seed = settings.seed;
+        endpointUrl = "https://fal.run/fal-ai/flux-pro/kontext";
+        body.image_url = imageUrl;
+        if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
+        if (settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
+        if (settings.seed != null) body.seed = settings.seed;
         break;
-      
-      case "gemini":
-        endpointUrl = 'https://fal.run/fal-ai/nano-banana/edit';
-        body.image_urls = [imageUrl]; // <--- Отправляем как массив
-        if (settings.seed) {
-            body.seed = settings.seed;
-        }
+
+      case "gemini": // Nano Banana edit
+        endpointUrl = "https://fal.run/fal-ai/nano-banana/edit";
+        body.image_urls = [imageUrl];
+        if (settings.seed != null) body.seed = settings.seed;
         break;
 
       default:
         return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
     }
-    
+
+    // Вызов FAL
     const response = await fetch(endpointUrl, {
-      method: 'POST',
-      headers: { 'Authorization': `Key ${FAL_KEY}`, 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: {
+        Authorization: `Key ${FAL_KEY}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(body),
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("API Error Response:", errorText); 
+      console.error("API Error Response:", errorText);
       return NextResponse.json({ error: `Ошибка API: ${errorText}` }, { status: response.status });
     }
 
     const data = await response.json();
-    const finalImageUrl = data.images?.[0]?.url;
+
+    // Унификация ответа: ищем URL итоговой картинки
+    const finalImageUrl: string | undefined =
+      data.images?.[0]?.url || data.image?.url || data.output?.[0]?.url;
 
     if (!finalImageUrl) {
-        console.error("API did not return an image URL. Response:", data); 
-        return NextResponse.json({ error: "API не вернуло изображение" }, { status: 500 });
+      console.error("API did not return an image URL. Response:", data);
+      return NextResponse.json({ error: "API не вернуло изображение" }, { status: 500 });
     }
-    
-    return NextResponse.json({ imageUrl: finalImageUrl });
 
+    // Скачиваем итоговое изображение
+    const imgResp = await fetch(finalImageUrl);
+    if (!imgResp.ok) {
+      const errText = await imgResp.text().catch(() => "");
+      return NextResponse.json(
+        { error: `Не удалось скачать изображение: ${imgResp.status} ${errText}` },
+        { status: 502 }
+      );
+    }
+
+    const ct = imgResp.headers.get("content-type");
+    const ext = inferExt(ct, finalImageUrl);
+    const buf = Buffer.from(await imgResp.arrayBuffer());
+
+    // Префикс с меткой модели и авто-индексом: "<label><N>__..."
+    const label = MODEL_LABELS[model] ?? model;
+    await fs.mkdir(SAVE_DIR, { recursive: true });
+    const labelIndex = await getNextLabelIndex(SAVE_DIR, label);
+
+    // Хвост имени как у тебя раньше
+    const seedPart =
+      typeof settings?.seed === "number" && !Number.isNaN(settings.seed)
+        ? `seed-${settings.seed}`
+        : "seed-auto";
+
+    // Итоговое имя: "<label><N>__<timestamp>__<model>__<seedPart>.<ext>"
+    const fileName = `${label}${labelIndex}__${tsForName()}__${model}__${seedPart}.${ext}`;
+
+    // Пишем файл
+    const filePath = path.join(SAVE_DIR, fileName);
+    await fs.writeFile(filePath, buf);
+
+    // Ответ
+    return NextResponse.json({
+      imageUrl: finalImageUrl,
+      savedPath: filePath,
+      fileName,
+      label,
+      labelIndex,
+    });
   } catch (e: any) {
-    console.error("Server-side error:", e); 
-    return NextResponse.json({ error: e.message || "Неизвестная ошибка на сервере" }, { status: 500 });
+    console.error("Server-side error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Неизвестная ошибка на сервере" },
+      { status: 500 }
+    );
   }
 }
+
 ```
 
 ---
@@ -533,82 +646,119 @@ export async function POST(req: NextRequest) {
 ## Файл: `src/app/api/refine-prompt/route.ts`
 
 ```typescript
-// src/app/api/refine-prompt/route.ts
-
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-export const runtime = "nodejs";
+// Если используешь типизацию сообщений с мультимодальностью:
+type TextPart = { type: "text"; text: string };
+type ImagePart = { type: "image_url"; image_url: { url: string } };
+type ChatMsg =
+  | { role: "system"; content: string }
+  | { role: "user"; content: (TextPart | ImagePart)[] }
+  | { role: "assistant"; content: string };
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+type RefineBody = {
+  prompt?: string;
+  system?: string;               // системка
+  model?: string;                // gpt-5-mini по умолчанию
+  temperature?: number | string;
+  top_p?: number | string;
+  max_completion_tokens?: number | string;
+  image?: string | null;         // data:image/...;base64,xxxx
+};
 
-export async function POST(req: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "Ключ API для OpenAI не найден" }, { status: 500 });
+function num(val: unknown): number | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === "number") return Number.isFinite(val) ? val : undefined;
+  if (typeof val === "string") {
+    const t = val.trim();
+    if (/^[+-]?\d+$/.test(t)) return parseInt(t, 10);
+    if (/^[+-]?\d+(\.\d+)?$/.test(t)) return parseFloat(t);
   }
+  return undefined;
+}
 
+export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-
-    const rawPrompt = formData.get("prompt") as string | null;
-    const modelName = formData.get("model") as string | null;
-    const imageFile = formData.get("image") as File | null;
-    const systemPrompt = formData.get("system_prompt") as string | null;
-    const temperatureStr = formData.get("temperature") as string | null;
-    const topPStr = formData.get("top_p") as string | null;
-    const maxTokensStr = formData.get("max_completion_tokens") as string | null; // приходит так, но ниже мапим на max_tokens
-
-    if (!rawPrompt || !modelName || !systemPrompt) {
-      return NextResponse.json({ error: "Отсутствуют обязательные поля: prompt, model, system_prompt" }, { status: 400 });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY не задан." },
+        { status: 500 }
+      );
     }
 
-    const messages: any[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: [{ type: "text", text: `Refine this prompt: "${rawPrompt}"` }] },
-    ];
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+    });
 
-    if (imageFile) {
-      // Убедимся, что модель поддерживает vision, прежде чем добавлять картинку.
-      // Это примерная логика; можно сделать более строгую проверку.
-      if (!modelName.includes("4o")) {
-         return NextResponse.json({ error: `Модель '${modelName}' не поддерживает изображения.` }, { status: 400 });
-      }
-      const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
-      const base64Image = imageBuffer.toString("base64");
-      (messages[1].content as any[]).push({
-        type: "image_url",
-        image_url: { url: `data:${imageFile.type};base64,${base64Image}` },
+    // ---- читаем JSON тело ----
+    const body = (await req.json()) as RefineBody;
+
+    const prompt = (body.prompt ?? "").trim();
+    const system = (body.system ?? "").trim();
+    const model = (body.model && body.model.trim()) || "gpt-5-mini";
+    const temperature = num(body.temperature);
+    const top_p = num(body.top_p);
+    const max_completion_tokens = num(body.max_completion_tokens) ?? 200;
+    const image = (body.image ?? "").trim() || null;
+
+    if (!prompt) {
+      return NextResponse.json(
+        { error: "Поле 'prompt' обязательно." },
+        { status: 400 }
+      );
+    }
+
+    // ---- собираем мультимодальные messages ----
+    const userParts: (TextPart | ImagePart)[] = [{ type: "text", text: prompt }];
+    if (image) {
+      // ожидаем data:URL или https URL
+      userParts.push({ type: "image_url", image_url: { url: image } });
+    }
+
+    const messages: ChatMsg[] = [];
+    if (system) messages.push({ role: "system", content: system });
+    messages.push({ role: "user", content: userParts });
+
+    // ---- вызов Chat Completions под GPT-5 ----
+    const resp = await client.chat.completions.create({
+      model,
+      // @ts-expect-error — SDK принимает мультимодальные части в messages
+      messages,
+      max_completion_tokens,
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(top_p !== undefined ? { top_p } : {}),
+    });
+
+    const choice = resp.choices?.[0];
+    const finishReason = choice?.finish_reason ?? "unknown";
+    const refinedPrompt = choice?.message?.content?.trim() || "";
+
+    if (refinedPrompt) {
+      return NextResponse.json({
+        refinedPrompt,
+        finish_reason: finishReason,
+        usage: resp.usage ?? null,
       });
     }
 
-    const temperature = temperatureStr ? parseFloat(temperatureStr) : undefined;
-    const top_p = topPStr ? parseFloat(topPStr) : undefined;
-    const max_tokens = maxTokensStr ? parseInt(maxTokensStr, 10) : undefined; // ✔ правильный ключ для Chat Completions
-
-    const response = await openai.chat.completions.create({
-        model: modelName,
-        messages,
-        temperature,
-        top_p,
-        max_completion_tokens: max_tokens, // <--- Правильный ключ, который требует API
-        });
-
-    const refinedPrompt = response.choices[0]?.message?.content?.trim();
-
-    if (!refinedPrompt) {
-      console.error("Full OpenAI Response on Empty Content:", JSON.stringify(response, null, 2));
-      const finishReason = response.choices[0]?.finish_reason || "unknown_reason";
-      const detailedError = `OpenAI не вернула улучшенный промпт. Причина завершения: '${finishReason}'. Проверь логи сервера для деталей.`;
-      return NextResponse.json({ error: detailedError }, { status: 500 });
-    }
-
-    return NextResponse.json({ refinedPrompt });
-  } catch (e: any) {
-    console.error("OpenAI API Error:", e);
-    const errorMessage = e.response?.data?.error?.message || e.message || "Неизвестная ошибка на сервере";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    // если пусто — лог и понятная 502
+    console.error("OpenAI empty response:", JSON.stringify(resp, null, 2));
+    return NextResponse.json(
+      { error: `OpenAI не вернула текст. Причина завершения: '${finishReason}'.` },
+      { status: 502 }
+    );
+  } catch (err: any) {
+    console.error("refine-prompt error:", err);
+    return NextResponse.json(
+      { error: err?.message || "Неизвестная ошибка." },
+      { status: 500 }
+    );
   }
 }
+
 ```
 
 ---
@@ -637,12 +787,31 @@ const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 type QwenSettings = { guidance_scale: number; num_inference_steps: number; seed: number };
 type FluxSettings = { guidance_scale: number; safety_tolerance: number; seed: number };
 
+type LlmModel = 'gpt-5-mini' | 'gpt-5-nano';
+
+type LlmSettings = {
+  model: LlmModel;
+  systemPrompt: string;
+  temperature: number;
+  topP: number;
+  maxCompletionTokens: number;
+};
+
 type PersistState = {
   prompt: string;
   negativePrompt: string;
   selectedModel: Model;
   qwenSettings: QwenSettings;
   fluxSettings: FluxSettings;
+
+  // NEW — сохраняем LLM и вспомогательные флаги/вкладки
+  llmSettings: LlmSettings;
+  sendImageToLlm: boolean;
+  showRefiner: boolean;
+  showNeg: boolean;
+  seedLock: boolean;
+  tab: "source" | "result" | "compare";
+  comparePos: number;
 };
 
 /** ---------- utils ---------- */
@@ -705,7 +874,6 @@ const Slider: React.FC<{
           step={step}
           name={name}
           className="w-20 bg-gray-900 border border-gray-700 rounded p-1.5 text-xs text-center"
-
         />
       }
     />
@@ -734,13 +902,49 @@ export default function ImageWorkspace() {
   const [refineError, setRefineError] = useState<string | null>(null); // <-- Ошибка LLM
   const [sendImageToLlm, setSendImageToLlm] = useState(true); // <-- Состояние чекбокса
   const [showRefiner, setShowRefiner] = useState(false); // <-- Для сворачивания блока
-  const [llmSettings, setLlmSettings] = useState({
-  model: 'gpt-5-mini' as 'gpt-5-mini' | 'gpt-5-nano',
-  systemPrompt: `You are an expert prompt engineer for an instruction-based image editing model. Your goal is to convert the user's short, messy request into a detailed, clear, and effective instruction. The user will provide a source image of a sauna and a short text. Your output must be a single, concise instruction in English. Focus on photorealism and accurate material descriptions. For example, if the user writes 'стены кедр, полки осина', you should output 'Change the vertical wall panels to photorealistic Canadian cedar wood, and make the benches from smooth, light aspen wood'.`,
-  temperature: 0.7,
-  topP: 1,
-  maxCompletionTokens: 200,
-});
+  const [llmSettings, setLlmSettings] = useState<LlmSettings>({
+    model: 'gpt-5-mini',
+    systemPrompt: `Ты — специализированный AI-ассистент «Промт-Инженер» для проекта AI-Рендерер.
+Твоя задача — анализировать входные данные (изображение сауны и список материалов) и собирать короткий, структурированный промт для модели редактуры изображений (например, Qwen-Image-Edit).
+
+Алгоритм:
+
+Фильтрация материалов
+
+Используй только материалы объектов, реально видимых на рендере.
+
+Игнорируй лишние строки и невидимые элементы.
+
+Геометрия
+Всегда добавляй:
+«Сохрани точную геометрию, пропорции, ракурс и FOV сцены; ничего не перемещать и не добавлять.»
+
+Материалы
+
+Замени все исходные заглушки на фотореалистичные материалы.
+
+Опиши их просто и понятно: дерево с вариацией оттенков, сучками, дефектами; абаши с матовой отделкой; плитка со швами; металл печи матовый; камни шероховатые.
+
+Не используй перегруженные термины вроде albedo, normal, AO. Пиши: «детализированные PBR-текстуры».
+
+Особые условия (⚡)
+Если есть чёрные пустые области, всегда указывай их замену в формате:
+
+⚡ Чёрная стена = панорамное окно с видом на заснеженный скандинавский лес днём, мягкий дневной свет заходит внутрь.
+
+⚡ Чёрный дверной проём = предбанник: светлый минималистичный интерьер, отделанный тем же деревом, что и стены сауны.
+👉 Никогда не используй слово «сгенерируй» — только строгую форму «=».
+
+Свет
+Всегда добавляй: «Свет тёплый, мягкий, с физически корректными тенями; при наличии окна добавить холодный дневной свет для контрастности.»
+
+Длина
+Итоговый промт должен быть короче, в пределах 5–7 предложений.
+Не превращай текст в «войну и мир» — главные акценты: геометрия, материалы, окно, дверь, свет.'.`,
+    temperature: 1.0,
+    topP: 1,
+    maxCompletionTokens: 2000,
+  });
   const [negativePrompt, setNegativePrompt] = useState("blurry, ugly, deformed, text, watermark");
   const [showNeg, setShowNeg] = useState(false);
   const [selectedModel, setSelectedModel] = useState<Model>("flux");
@@ -775,24 +979,60 @@ export default function ImageWorkspace() {
 
   // persist
   useEffect(() => {
-    const p = loadPersist();
-    if (!p) return;
-    setPrompt(p.prompt ?? "");
-    setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
-    setSelectedModel(p.selectedModel ?? "flux");
-    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
-    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
-  }, []);
+  const p = loadPersist();
+  if (!p) return;
+
+  setPrompt(p.prompt ?? "");
+  setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
+  setSelectedModel(p.selectedModel ?? "flux");
+  setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
+  setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+
+  // NEW — безопасно подхватываем, если уже сохранено
+  if (p.llmSettings) setLlmSettings(p.llmSettings);
+  if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
+  if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
+  if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
+  if (typeof p.seedLock === "boolean") setSeedLock(p.seedLock);
+  if (p.tab) setTab(p.tab);
+  if (typeof p.comparePos === "number") setComparePos(p.comparePos);
+}, []);
+
 
   useEffect(() => {
-    savePersist({
-      prompt,
-      negativePrompt,
-      selectedModel,
-      qwenSettings,
-      fluxSettings,
-    });
-  }, [prompt, negativePrompt, selectedModel, qwenSettings, fluxSettings]);
+  savePersist({
+    prompt,
+    negativePrompt,
+    selectedModel,
+    qwenSettings,
+    fluxSettings,
+
+    // NEW — добавили всё, что хотим сохранять
+    llmSettings,
+    sendImageToLlm,
+    showRefiner,
+    showNeg,
+    seedLock,
+    tab,
+    comparePos,
+  });
+}, [
+  prompt,
+  negativePrompt,
+  selectedModel,
+  qwenSettings,
+  fluxSettings,
+
+  // NEW — deps для автосейва
+  llmSettings,
+  sendImageToLlm,
+  showRefiner,
+  showNeg,
+  seedLock,
+  tab,
+  comparePos,
+]);
+
 
   // revoke URL
   useEffect(() => {
@@ -821,48 +1061,69 @@ export default function ImageWorkspace() {
   };
 
   const onRefinePrompt = async () => {
-  if (!rawPrompt.trim()) return;
-  setIsRefining(true);
-  setRefineError(null);
-  abortControllerRef.current = new AbortController();
+    if (!rawPrompt.trim()) return;
+    setIsRefining(true);
+    setRefineError(null);
+    abortControllerRef.current = new AbortController();
 
-  const formData = new FormData();
-  formData.append("prompt", rawPrompt);
-  
-  // Отправляем все настройки из объекта llmSettings
-  formData.append("model", llmSettings.model);
-  formData.append("system_prompt", llmSettings.systemPrompt);
-  formData.append("temperature", llmSettings.temperature.toString());
-  formData.append("top_p", llmSettings.topP.toString());
-  formData.append("max_completion_tokens", llmSettings.maxCompletionTokens.toString());
+    function arrayBufferToBase64(buffer: ArrayBuffer): string {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000; // 32KB пакетами
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      return btoa(binary);
+    }
 
-  if (sendImageToLlm && sourceFile) {
-    formData.append("image", sourceFile);
-  }
-  
-  try {
-    const response = await fetch("/api/refine-prompt", {
-      method: "POST",
-      body: formData,
-      signal: abortControllerRef.current.signal,
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || "Неизвестная ошибка API");
+    let base64Image: string | undefined = undefined;
+    if (sendImageToLlm && sourceFile) {
+      const buffer = await sourceFile.arrayBuffer();
+      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
     }
-    const data = await response.json();
-    setPrompt(data.refinedPrompt);
-    setShowRefiner(false);
-  } catch (e: any) {
-    if (e.name === "AbortError") {
-      setRefineError("Улучшение отменено.");
-    } else {
-      setRefineError(e.message);
+
+    const payload = {
+      prompt: rawPrompt,
+      model: llmSettings.model,
+      system: llmSettings.systemPrompt,
+      temperature: llmSettings.temperature,
+      top_p: llmSettings.topP,
+      max_completion_tokens: llmSettings.maxCompletionTokens,
+      ...(base64Image ? { image: base64Image } : {}),
+    };
+
+    try {
+      const response = await fetch("/api/refine-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Неизвестная ошибка API");
+      }
+
+      const data = await response.json();
+      setPrompt(data.refinedPrompt);
+      setShowRefiner(false);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") {
+          setRefineError("Улучшение отменено.");
+        } else {
+          setRefineError(e.message);
+        }
+      } else {
+        setRefineError("Произошла неизвестная ошибка.");
+      }
+    } finally {
+      setIsRefining(false);
     }
-  } finally {
-    setIsRefining(false);
-  }
-};
+  };
+
 
   const isReadyToGenerate = useMemo(() => !!sourceFile && !!prompt.trim() && !isLoading, [sourceFile, prompt, isLoading]);
 
@@ -906,7 +1167,7 @@ export default function ImageWorkspace() {
   };
 
   const onPaste = async (e: ClipboardEvent) => {
-    const items = (e.clipboardData || (window as any).clipboardData).items;
+    const items = e.clipboardData?.items;
     if (!items) return;
     for (const it of items) {
       if (it.type.startsWith("image/")) {
@@ -921,8 +1182,8 @@ export default function ImageWorkspace() {
 
   useEffect(() => {
     const handler = (ev: ClipboardEvent) => onPaste(ev);
-    window.addEventListener("paste", handler as any);
-    return () => window.removeEventListener("paste", handler as any);
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
   }, []);
 
   const onClear = () => {
@@ -934,6 +1195,12 @@ export default function ImageWorkspace() {
     setPrompt("");
     setImageInfo(null);
     setTab("source");
+    setShowRefiner(false);
+    setShowNeg(false);
+    setSendImageToLlm(true);
+    setSeedLock(false);
+    setTab("source");
+    setComparePos(50);
   };
 
   const onCancel = () => {
@@ -961,16 +1228,24 @@ export default function ImageWorkspace() {
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", selectedModel);
 
-    let settings: any = {};
-    if (selectedModel === "qwen") settings = qwenSettings;
-    if (selectedModel === "flux") settings = fluxSettings;
+    let settings: QwenSettings | FluxSettings;
+    if (selectedModel === "qwen") {
+      settings = qwenSettings;
+    } else {
+      settings = fluxSettings;
+    }
 
     // если сид не залочен — подкинем новый для разнообразия
     if (!seedLock) {
       const seed = Math.floor(Math.random() * 2_147_483_647);
-      settings = { ...settings, seed };
-      if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
-      if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
+      if (selectedModel === "flux") {
+        settings = { ...settings, seed };
+        setFluxSettings((p) => ({ ...p, seed }));
+      }
+      if (selectedModel === "qwen") {
+        settings = { ...settings, seed };
+        setQwenSettings((p) => ({ ...p, seed }));
+      }
     }
 
     formData.append("settings", JSON.stringify(settings));
@@ -988,11 +1263,15 @@ export default function ImageWorkspace() {
       const data = await response.json();
       setResultUrl(data.imageUrl);
       setTab("result");
-    } catch (e: any) {
-      if (e.name === "AbortError") {
-        setError("Генерация отменена.");
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") {
+          setError("Генерация отменена.");
+        } else {
+          setError(e.message);
+        }
       } else {
-        setError(e.message);
+        setError("Произошла неизвестная ошибка.");
       }
     } finally {
       setIsLoading(false);
@@ -1045,88 +1324,88 @@ export default function ImageWorkspace() {
 
 
         {/* prompt refiner */}
-          <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
-            <button type="button" onClick={() => setShowRefiner(v => !v)} className="w-full text-left text-sm font-medium text-cyan-400">
-              {showRefiner ? "▼ Скрыть «Промпт-Инженер»" : "► Открыть «Промпт-Инженер»"}
-            </button>
-            {showRefiner && (
-              <div className="pt-2 space-y-4">
-                <div>
-                  <Label title="1. Сырая идея" />
-                  <textarea
-                    rows={3}
-                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
-                    value={rawPrompt}
-                    onChange={(e) => setRawPrompt(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <Label title="2. Системный промпт для LLM" />
-                  <textarea
-                    name="systemPrompt"
-                    rows={6}
-                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    value={llmSettings.systemPrompt}
-                    onChange={handleLlmSettingsChange}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label title="Модель" />
-                    <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
-                      {(['gpt-5-mini', 'gpt-5-nano'] as const).map(model => (
-                        <button
-                          key={model}
-                          onClick={() => setLlmSettings(p => ({ ...p, model }))}
-                          className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                            llmSettings.model === model ? 'bg-cyan-600 text-white' : 'hover:bg-gray-800'
-                          }`}
-                        >
-                          {model.replace('gpt-5-', '')}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
-                    <Label title="Контекст" />
-                    <div className="flex items-center gap-2">
-                      <input
-                          type="checkbox"
-                          checked={sendImageToLlm}
-                          onChange={(e) => setSendImageToLlm(e.target.checked)}
-                          className="accent-cyan-500"
-                          disabled={!sourceFile}
-                      />
-                      Отправить картинку
-                    </div>
-                  </label>
-                </div>
-
-                <div className="pt-2 border-t border-gray-800 space-y-4">
-                  <Slider label="Temperature" name="temperature" value={llmSettings.temperature} min={0} max={2} step={0.1} onChange={handleLlmSettingsChange} />
-                  <Slider label="Top P" name="topP" value={llmSettings.topP} min={0} max={1} step={0.05} onChange={handleLlmSettingsChange} />
-                  <Slider label="Max Tokens" name="maxCompletionTokens" value={llmSettings.maxCompletionTokens} min={50} max={1000} step={10} onChange={handleLlmSettingsChange} />
-                </div>
-
-                <div className="text-center">
-                  <button
-                    onClick={onRefinePrompt}
-                    disabled={!rawPrompt.trim() || isRefining}
-                    className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
-                  >
-                    {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
-                  </button>
-                </div>
-
-                {refineError && (
-                  <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">{refineError}</p>
-                )}
+        <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+          <button type="button" onClick={() => setShowRefiner(v => !v)} className="w-full text-left text-sm font-medium text-cyan-400">
+            {showRefiner ? "▼ Скрыть «Промпт-Инженер»" : "► Открыть «Промпт-Инженер»"}
+          </button>
+          {showRefiner && (
+            <div className="pt-2 space-y-4">
+              <div>
+                <Label title="1. Сообщение для LLM" />
+                <textarea
+                  rows={3}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
+                  value={rawPrompt}
+                  onChange={(e) => setRawPrompt(e.target.value)}
+                />
               </div>
-            )}
-          </div>
+
+              <div>
+                <Label title="2. Системный промпт для LLM" />
+                <textarea
+                  name="systemPrompt"
+                  rows={6}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  value={llmSettings.systemPrompt}
+                  onChange={handleLlmSettingsChange}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label title="Модель" />
+                  <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
+                    {(['gpt-5-mini', 'gpt-5-nano'] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setLlmSettings(p => ({ ...p, model }))}
+                        className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
+                          llmSettings.model === model ? 'bg-cyan-600 text-white' : 'hover:bg-gray-800'
+                        }`}
+                      >
+                        {model.replace('gpt-5-', 'GPT-5 ')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
+                  <Label title="Контекст" />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={sendImageToLlm}
+                      onChange={(e) => setSendImageToLlm(e.target.checked)}
+                      className="accent-cyan-500"
+                      disabled={!sourceFile}
+                    />
+                    Отправить картинку
+                  </div>
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-gray-800 space-y-4">
+                <Slider label="Temperature" name="temperature" value={llmSettings.temperature} min={0} max={2} step={0.1} onChange={handleLlmSettingsChange} />
+                <Slider label="Top P" name="topP" value={llmSettings.topP} min={0} max={1} step={0.05} onChange={handleLlmSettingsChange} />
+                <Slider label="Max Tokens" name="maxCompletionTokens" value={llmSettings.maxCompletionTokens} min={50} max={1000} step={10} onChange={handleLlmSettingsChange} />
+              </div>
+
+              <div className="text-center">
+                <button
+                  onClick={onRefinePrompt}
+                  disabled={!rawPrompt.trim() || isRefining}
+                  className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+                >
+                  {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
+                </button>
+              </div>
+
+              {refineError && (
+                <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">{refineError}</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* prompt */}
         <div className="mt-5 space-y-2">
@@ -1137,7 +1416,6 @@ export default function ImageWorkspace() {
             }
           />
           <textarea
-          
             rows={5}
             className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
             placeholder="Напр.: Change the walls to photorealistic Canadian cedar..."
@@ -1177,7 +1455,7 @@ export default function ImageWorkspace() {
                   className={cx(
                     "py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all duration-200",
                     isActive
-                      ? "bg-green-500 text-white shadow-lg shadow-green-500/30" // <--- ИЗМЕНЕНО
+                      ? "bg-green-500 text-white shadow-lg shadow-green-500/30"
                       : "bg-gray-900 border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200 hover:border-gray-600"
                   )}
                 >
@@ -1296,10 +1574,10 @@ export default function ImageWorkspace() {
 
             <button
               onClick={() => {
-                if (!sourceUrl) return;
+                if (!sourceUrl || !sourceFile) return;
                 const link = document.createElement("a");
                 link.href = sourceUrl;
-                link.download = sourceFile?.name || "source.png";
+                link.download = sourceFile.name || "source.png";
                 link.click();
               }}
               disabled={!sourceUrl}
@@ -1379,7 +1657,6 @@ export default function ImageWorkspace() {
     </div>
   );
 }
-
 ```
 
 ---
