@@ -5,6 +5,10 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-block-muted: #4f2d66;
+}
+
 body {
   background-color: #111827; /* Немного смягчим фон */
   color: #d1d5db; /* Сделаем текст чуть менее резким */
@@ -55,3 +59,4 @@ label {
 .bg-gray-850 {
   background-color: #1b2332; /* мягкий тёмный между 800 и 900 */
 }
+

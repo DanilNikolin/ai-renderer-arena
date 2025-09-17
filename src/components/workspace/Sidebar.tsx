@@ -54,6 +54,11 @@ interface SidebarProps {
   onCancel: () => void;
   onClear: () => void;
   error: string | null;
+  jsonContent: string | null;
+  isJsonViewerOpen: boolean;
+  setIsJsonViewerOpen: (value: React.SetStateAction<boolean>) => void;
+  jsonError: string | null;
+  onJsonFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -95,7 +100,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCancel,
   onClear,
   error,
-}) => {
+    jsonContent,
+    isJsonViewerOpen,
+    setIsJsonViewerOpen,
+    jsonError,
+    onJsonFileChange,
+    }) => {
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
       {/* file */}
@@ -151,13 +161,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </label>
       </div>
 
+{/* JSON Viewer */}
+<div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+  <button
+    type="button"
+    onClick={() => setIsJsonViewerOpen(v => !v)}
+    className="w-full text-left text-sm font-medium text-yellow-400"
+  >
+    {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
+  </button>
+  {isJsonViewerOpen && (
+    <div className="pt-2 space-y-3">
+      <label 
+        htmlFor="json-upload" 
+        className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+      >
+        Нажми, чтобы выбрать .json файл
+        <input id="json-upload" type="file" className="hidden" accept="application/json" onChange={onJsonFileChange} />
+      </label>
+      
+      {jsonError && (
+        <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">{jsonError}</p>
+      )}
+
+      {jsonContent && (
+        <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
+          <code>
+            {jsonContent}
+          </code>
+        </pre>
+      )}
+    </div>
+  )}
+</div>
+
       {/* prompt refiner */}
-      <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+      <div
+  className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3" // <-- Убрали отсюда класс bg-[--color-block-muted]
+  style={{ backgroundColor: '#221b25ff' }} // <-- Добавили стиль напрямую
+>
         <button
           type="button"
           onClick={() => setShowRefiner((v) => !v)}
           className="w-full text-left text-sm font-medium text-cyan-400"
         >
+            
           {showRefiner
             ? "▼ Скрыть «Промпт-Инженер»"
             : "► Открыть «Промпт-Инженер»"}
@@ -274,13 +322,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* prompt */}
       <div className="mt-5 space-y-2">
         <Label
-          title="Инструкция"
-          right={
-            <span className="text-[10px] text-gray-500">
-              {prompt.trim().length || 0}
-            </span>
-          }
-        />
+            title="Инструкция для генерации"
+            right={
+                <span className="text-[10px] text-gray-500">{prompt.trim().length || 0}</span>
+            }
+            />
         <textarea
           rows={5}
           className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"

@@ -71,6 +71,9 @@ export function useImageWorkspace() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const dropRef = useRef<HTMLLabelElement | null>(null);
 
+  const [jsonContent, setJsonContent] = useState<string | null>(null);
+  const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
   // --- Эффекты (Effects) ---
 
   // Загрузка состояния из localStorage при первом рендере
@@ -252,6 +255,40 @@ export function useImageWorkspace() {
     }
   };
   
+  const handleJsonFile = (file: File) => {
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      if (typeof event.target?.result !== 'string') {
+        throw new Error("Не удалось прочитать файл.");
+      }
+      const parsed = JSON.parse(event.target.result);
+      // Форматируем для красивого вывода
+      setJsonContent(JSON.stringify(parsed, null, 2)); 
+      setJsonError(null);
+      setIsJsonViewerOpen(true); // Автоматически открываем окно при успехе
+    } catch (e) {
+      setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
+      setJsonContent(null);
+    }
+  };
+  reader.onerror = () => {
+    setJsonError("Не удалось прочитать файл.");
+    setJsonContent(null);
+  };
+  reader.readAsText(file);
+};
+
+const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (file && file.type === "application/json") {
+    handleJsonFile(file);
+  } else if (file) {
+    setJsonError("Неверный тип файла. Нужен JSON.");
+  }
+  e.target.value = ""; // Сбрасываем инпут
+};
+
   const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileSelect(file);
@@ -362,6 +399,11 @@ export function useImageWorkspace() {
 
   // --- Возвращаем публичный API хука ---
   return {
+    jsonContent,
+    isJsonViewerOpen,
+    setIsJsonViewerOpen,
+    jsonError,
+    onJsonFileChange,
     sourceFile,
     sourceUrl,
     resultUrl,
