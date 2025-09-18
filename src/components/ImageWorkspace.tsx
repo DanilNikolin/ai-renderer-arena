@@ -32,6 +32,8 @@ export default function ImageWorkspace() {
         setTab={workspaceState.setTab}
         comparePos={workspaceState.comparePos}
         setComparePos={workspaceState.setComparePos}
+        results={workspaceState.results}
+        handleSelectResult={workspaceState.handleSelectResult}
       />
     </div>
   );

@@ -1,7 +1,8 @@
 // src/hooks/useImageWorkspace.ts
 
 import { useState, useMemo, useEffect, useRef, ChangeEvent, DragEvent, KeyboardEvent } from "react";
-import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings } from "@/lib/types"; // <--- ДОБАВИЛИ SeedreamSettings
+import { encode } from "gpt-tokenizer";
+import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings } from "@/lib/types";
 import { loadPersist, readImageDims, savePersist } from "@/lib/utils";
 
 const initialLlmSettings: LlmSettings = {
@@ -65,13 +66,18 @@ export function useImageWorkspace() {
   const [fluxSettings, setFluxSettings] = useState<FluxSettings>({ guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
   const [seedreamSettings, setSeedreamSettings] = useState<SeedreamSettings>({ seed: 0, width: 1024, height: 1024 });
 
-
+  // <<< НОВОЕ: Состояния для режима детализации
+  const [results, setResults] = useState<string[]>([]);
+  const [isDetailingMode, setIsDetailingMode] = useState(false);
+  
   const abortControllerRef = useRef<AbortController | null>(null);
   const dropRef = useRef<HTMLLabelElement | null>(null);
 
   const [jsonContent, setJsonContent] = useState<string | null>(null);
   const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [promptTokenCount, setPromptTokenCount] = useState(0);
+  const [negativeTokenCount, setNegativeTokenCount] = useState(0);
   // --- Эффекты (Effects) ---
 
   // Загрузка состояния из localStorage при первом рендере
@@ -82,11 +88,11 @@ export function useImageWorkspace() {
     setPrompt(p.prompt ?? "");
     setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
     setSelectedModel(p.selectedModel ?? "flux");
-    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
-    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
+    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
     const loadedSeedream = p.seedreamSettings || {};
     setSeedreamSettings(prev => ({ ...{ seed: 0, width: 1024, height: 1024 }, ...loadedSeedream }));
-    if (p.llmSettings) setLlmSettings(p.llmSettings);
+    if (p.llmSettings) setLlmSettings(p.llmSettings);
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
     if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
@@ -132,25 +138,31 @@ export function useImageWorkspace() {
   useEffect(() => {
     return () => {
       if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      // <<< ИЗМЕНЕНО: Также чистим URL'ы из галереи
+      results.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [sourceUrl]);
+  }, [sourceUrl, results]);
   
   // Обработчик вставки из буфера обмена
   useEffect(() => {
     const handler = (ev: ClipboardEvent) => onPaste(ev);
     window.addEventListener("paste", handler);
     return () => window.removeEventListener("paste", handler);
-  }, []); // Зависимости пустые, т.к. onPaste определена внутри хука
+  }, []);
 
+  useEffect(() => {
+    setPromptTokenCount(encode(prompt).length);
+    setNegativeTokenCount(encode(negativePrompt).length);
+  }, [prompt, negativePrompt]);
 
   // --- Обработчики и логика ---
 
   const handleQwenChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
-  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
+    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
   const handleSeedreamChange = (e: ChangeEvent<HTMLInputElement>) => { 
     setSeedreamSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
   };
@@ -241,6 +253,7 @@ export function useImageWorkspace() {
     setIsLoading(false);
   };
 
+  // <<< ИЗМЕНЕНО: handleFileSelect теперь сбрасывает режим детализации
   const handleFileSelect = async (file: File) => {
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) return fail(`Размер файла не должен превышать ${MAX_FILE_SIZE_MB} MB.`);
     if (!ACCEPTED_FILE_TYPES.includes(file.type)) return fail("Неверный тип файла. Используйте PNG, JPEG или WebP.");
@@ -248,10 +261,16 @@ export function useImageWorkspace() {
     setError(null);
     setResultUrl(null);
     setTab("source");
+    
+    // <<< Сброс состояния галереи и режима при загрузке нового файла
+    setResults([]);
+    setIsDetailingMode(false);
+
     setSourceFile(file);
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
     const url = URL.createObjectURL(file);
     setSourceUrl(url);
+
     try {
       const dims = await readImageDims(file);
       setImageInfo(dims);
@@ -261,38 +280,37 @@ export function useImageWorkspace() {
   };
   
   const handleJsonFile = (file: File) => {
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    try {
-      if (typeof event.target?.result !== 'string') {
-        throw new Error("Не удалось прочитать файл.");
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        if (typeof event.target?.result !== 'string') {
+          throw new Error("Не удалось прочитать файл.");
+        }
+        const parsed = JSON.parse(event.target.result);
+        setJsonContent(JSON.stringify(parsed, null, 2)); 
+        setJsonError(null);
+        setIsJsonViewerOpen(true);
+      } catch (e) {
+        setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
+        setJsonContent(null);
       }
-      const parsed = JSON.parse(event.target.result);
-      // Форматируем для красивого вывода
-      setJsonContent(JSON.stringify(parsed, null, 2)); 
-      setJsonError(null);
-      setIsJsonViewerOpen(true); // Автоматически открываем окно при успехе
-    } catch (e) {
-      setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
+    };
+    reader.onerror = () => {
+      setJsonError("Не удалось прочитать файл.");
       setJsonContent(null);
-    }
+    };
+    reader.readAsText(file);
   };
-  reader.onerror = () => {
-    setJsonError("Не удалось прочитать файл.");
-    setJsonContent(null);
-  };
-  reader.readAsText(file);
-};
 
-const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (file && file.type === "application/json") {
-    handleJsonFile(file);
-  } else if (file) {
-    setJsonError("Неверный тип файла. Нужен JSON.");
-  }
-  e.target.value = ""; // Сбрасываем инпут
-};
+  const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type === "application/json") {
+      handleJsonFile(file);
+    } else if (file) {
+      setJsonError("Неверный тип файла. Нужен JSON.");
+    }
+    e.target.value = "";
+  };
 
   const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -320,6 +338,7 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     }
   };
 
+  // <<< ИЗМЕНЕНО: onClear теперь тоже сбрасывает галерею и режим
   const onClear = () => {
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
     setSourceFile(null);
@@ -334,6 +353,9 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     setSendImageToLlm(true);
     setSeedLock(false);
     setComparePos(50);
+    // <<< Сброс состояния галереи и режима
+    setResults([]);
+    setIsDetailingMode(false);
   };
 
   const onCancel = () => {
@@ -343,17 +365,50 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
   };
 
   const randomizeSeed = () => {
-    const seed = Math.floor(Math.random() * 2_147_483_647);
-    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
-    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
+    const seed = Math.floor(Math.random() * 2_147_483_647);
+    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
+    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
     if (selectedModel === "seedream") setSeedreamSettings((p) => ({...p, seed }));
-  };
+  };
   
+  // <<< НОВОЕ: Функция для выбора результата из галереи как нового исходника
+  const handleSelectResult = async (url: string) => {
+    setIsLoading(true); // Блокируем интерфейс на время подготовки файла
+    setError(null);
+    
+    try {
+      // Скачиваем картинку по URL и превращаем в File
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const file = new File([blob], "generated_source.png", { type: blob.type });
+
+      // Обновляем состояния, как будто загрузили новый файл
+      setSourceFile(file);
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      const newSourceUrl = URL.createObjectURL(file);
+      setSourceUrl(newSourceUrl);
+      
+      const dims = await readImageDims(file);
+      setImageInfo(dims);
+      
+      // Переключаемся в режим детализации и очищаем промпт
+      setIsDetailingMode(true);
+      setPrompt(""); // Очищаем поле для новой, короткой инструкции
+      setTab("source"); // Показываем новый исходник
+      
+    } catch (e) {
+        fail("Не удалось загрузить изображение для доработки.");
+    } finally {
+        setIsLoading(false);
+    }
+  };
+  
+  // <<< ИЗМЕНЕНО: Основная функция генерации теперь учитывает режим
   const onGenerate = async () => {
     if (!isReadyToGenerate || !sourceFile) return;
     setIsLoading(true);
     setError(null);
-    setResultUrl(null);
+    // Не очищаем resultUrl, чтобы последняя картинка не пропадала во время генерации новой
     abortControllerRef.current = new AbortController();
 
     const formData = new FormData();
@@ -362,13 +417,12 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", selectedModel);
 
-    let settings: QwenSettings | FluxSettings | SeedreamSettings;
+    let settings: QwenSettings | FluxSettings | SeedreamSettings;
     switch (selectedModel) {
       case "qwen":
         settings = qwenSettings;
         break;
       case "seedream":
-        // Перед генерацией подставляем реальные размеры картинки
         settings = { ...seedreamSettings, width: imageInfo!.w, height: imageInfo!.h };
         break;
       case "flux":
@@ -376,16 +430,16 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         settings = fluxSettings;
         break;
     }
-    
-    if (!seedLock) {
-      const seed = Math.floor(Math.random() * 2_147_483_647);
-      settings = { ...settings, seed };
+    
+    if (!seedLock) {
+      const seed = Math.floor(Math.random() * 2_147_483_647);
+      settings = { ...settings, seed };
       if (selectedModel === "qwen") setQwenSettings(p => ({ ...p, seed }));
       if (selectedModel === "seedream") setSeedreamSettings(p => ({ ...p, seed }));
-      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
-    }
+      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
+    }
 
-    formData.append("settings", JSON.stringify(settings));
+    formData.append("settings", JSON.stringify(settings));
 
     try {
       const response = await fetch("/api/generate", {
@@ -398,8 +452,12 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         throw new Error(errorData.error || "Неизвестная ошибка API");
       }
       const data = await response.json();
-      setResultUrl(data.imageUrl);
+      
+      // <<< Обновляем состояния после генерации
+      setResultUrl(data.imageUrl); // Показываем новый результат
+      setResults(prev => [...prev, data.imageUrl]); // Добавляем его в галерею
       setTab("result");
+
     } catch (e: unknown) {
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
@@ -466,5 +524,10 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     onCancel,
     randomizeSeed,
     onGenerate,
+    results,
+    isDetailingMode,
+    handleSelectResult,
+    promptTokenCount,
+    negativeTokenCount,
   };
 }

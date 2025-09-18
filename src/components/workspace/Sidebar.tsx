@@ -62,6 +62,9 @@ interface SidebarProps {
   setIsJsonViewerOpen: (value: React.SetStateAction<boolean>) => void;
   jsonError: string | null;
   onJsonFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  isDetailingMode: boolean;
+  promptTokenCount: number;
+  negativeTokenCount: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -105,18 +108,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCancel,
   onClear,
   error,
-    jsonContent,
-    isJsonViewerOpen,
-    setIsJsonViewerOpen,
-    jsonError,
-    onJsonFileChange,
-    }) => {
+  jsonContent,
+  isJsonViewerOpen,
+  setIsJsonViewerOpen,
+  jsonError,
+  onJsonFileChange,
+  isDetailingMode,
+  promptTokenCount,
+  negativeTokenCount,
+}) => {
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
       {/* file */}
       <div className="space-y-2">
         <Label
-          title="Исходное изображение"
+          title={isDetailingMode ? "Изображение для доработки" : "Исходное изображение"}
           right={
             imageInfo && (
               <span className="text-[10px] text-gray-500">
@@ -166,186 +172,195 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </label>
       </div>
 
-{/* JSON Viewer */}
-<div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
-  <button
-    type="button"
-    onClick={() => setIsJsonViewerOpen(v => !v)}
-    className="w-full text-left text-sm font-medium text-yellow-400"
-  >
-    {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
-  </button>
-  {isJsonViewerOpen && (
-    <div className="pt-2 space-y-3">
-      <label 
-        htmlFor="json-upload" 
-        className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
-      >
-        Нажми, чтобы выбрать .json файл
-        <input id="json-upload" type="file" className="hidden" accept="application/json" onChange={onJsonFileChange} />
-      </label>
-      
-      {jsonError && (
-        <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">{jsonError}</p>
-      )}
-
-      {jsonContent && (
-        <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
-          <code>
-            {jsonContent}
-          </code>
-        </pre>
-      )}
-    </div>
-  )}
-</div>
-
-      {/* prompt refiner */}
-      <div
-  className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3" // <-- Убрали отсюда класс bg-[--color-block-muted]
-  style={{ backgroundColor: '#221b25ff' }} // <-- Добавили стиль напрямую
->
+      {/* JSON Viewer */}
+      <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
         <button
           type="button"
-          onClick={() => setShowRefiner((v) => !v)}
-          className="w-full text-left text-sm font-medium text-cyan-400"
+          onClick={() => setIsJsonViewerOpen((v) => !v)}
+          className="w-full text-left text-sm font-medium text-yellow-400"
         >
-            
-          {showRefiner
-            ? "▼ Скрыть «Промпт-Инженер»"
-            : "► Открыть «Промпт-Инженер»"}
+          {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
         </button>
-        {showRefiner && (
-          <div className="pt-2 space-y-4">
-            <div>
-              <Label title="1. Сообщение для LLM" />
-              <textarea
-                rows={3}
-                className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
-                value={rawPrompt}
-                onChange={(e) => setRawPrompt(e.target.value)}
+        {isJsonViewerOpen && (
+          <div className="pt-2 space-y-3">
+            <label
+              htmlFor="json-upload"
+              className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+            >
+              Нажми, чтобы выбрать .json файл
+              <input
+                id="json-upload"
+                type="file"
+                className="hidden"
+                accept="application/json"
+                onChange={onJsonFileChange}
               />
-            </div>
+            </label>
 
-            <div>
-              <Label title="2. Системный промпт для LLM" />
-              <textarea
-                name="systemPrompt"
-                rows={6}
-                className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                value={llmSettings.systemPrompt}
-                onChange={handleLlmSettingsChange}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label title="Модель" />
-                <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
-                  {(["gpt-5-mini", "gpt-5-nano"] as const).map((model) => (
-                    <button
-                      key={model}
-                      onClick={() =>
-                        setLlmSettings((p) => ({ ...p, model }))
-                      }
-                      className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                        llmSettings.model === model
-                          ? "bg-cyan-600 text-white"
-                          : "hover:bg-gray-800"
-                      }`}
-                    >
-                      {model.replace("gpt-5-", "GPT-5 ")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
-                <Label title="Контекст" />
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={sendImageToLlm}
-                    onChange={(e) => setSendImageToLlm(e.target.checked)}
-                    className="accent-cyan-500"
-                    disabled={!sourceFile}
-                  />
-                  Отправить картинку
-                </div>
-              </label>
-            </div>
-
-            <div className="pt-2 border-t border-gray-800 space-y-4">
-              <Slider
-                label="Temperature"
-                name="temperature"
-                value={llmSettings.temperature}
-                min={0}
-                max={2}
-                step={0.1}
-                onChange={handleLlmSettingsChange}
-              />
-              <Slider
-                label="Top P"
-                name="topP"
-                value={llmSettings.topP}
-                min={0}
-                max={1}
-                step={0.05}
-                onChange={handleLlmSettingsChange}
-              />
-              <Slider
-                label="Max Tokens"
-                name="maxCompletionTokens"
-                value={llmSettings.maxCompletionTokens}
-                min={50}
-                max={1000}
-                step={10}
-                onChange={handleLlmSettingsChange}
-              />
-            </div>
-
-            <div className="text-center">
-              <button
-                onClick={onRefinePrompt}
-                disabled={!rawPrompt.trim() || isRefining}
-                className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
-              >
-                {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
-              </button>
-            </div>
-
-            {refineError && (
+            {jsonError && (
               <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
-                {refineError}
+                {jsonError}
               </p>
+            )}
+
+            {jsonContent && (
+              <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
+                <code>{jsonContent}</code>
+              </pre>
             )}
           </div>
         )}
       </div>
+      
+      {/* <<< ИЗМЕНЕНИЕ: Весь блок промпт-инженера теперь показывается по условию */}
+      {!isDetailingMode && (
+        <div
+          className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
+          style={{ backgroundColor: "#221b25ff" }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowRefiner((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400"
+          >
+            {showRefiner
+              ? "▼ Скрыть «Промпт-Инженер»"
+              : "► Открыть «Промпт-Инженер»"}
+          </button>
+          {showRefiner && (
+            <div className="pt-2 space-y-4">
+              <div>
+                <Label title="1. Сообщение для LLM" />
+                <textarea
+                  rows={3}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
+                  value={rawPrompt}
+                  onChange={(e) => setRawPrompt(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label title="2. Системный промпт для LLM" />
+                <textarea
+                  name="systemPrompt"
+                  rows={6}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  value={llmSettings.systemPrompt}
+                  onChange={handleLlmSettingsChange}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label title="Модель" />
+                  <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
+                    {(["gpt-5-mini", "gpt-5-nano"] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() =>
+                          setLlmSettings((p) => ({ ...p, model }))
+                        }
+                        className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
+                          llmSettings.model === model
+                            ? "bg-cyan-600 text-white"
+                            : "hover:bg-gray-800"
+                        }`}
+                      >
+                        {model.replace("gpt-5-", "GPT-5 ")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
+                  <Label title="Контекст" />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={sendImageToLlm}
+                      onChange={(e) => setSendImageToLlm(e.target.checked)}
+                      className="accent-cyan-500"
+                      disabled={!sourceFile}
+                    />
+                    Отправить картинку
+                  </div>
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-gray-800 space-y-4">
+                <Slider
+                  label="Temperature"
+                  name="temperature"
+                  value={llmSettings.temperature}
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  onChange={handleLlmSettingsChange}
+                />
+                <Slider
+                  label="Top P"
+                  name="topP"
+                  value={llmSettings.topP}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={handleLlmSettingsChange}
+                />
+                <Slider
+                  label="Max Tokens"
+                  name="maxCompletionTokens"
+                  value={llmSettings.maxCompletionTokens}
+                  min={50}
+                  max={1000}
+                  step={10}
+                  onChange={handleLlmSettingsChange}
+                />
+              </div>
+
+              <div className="text-center">
+                <button
+                  onClick={onRefinePrompt}
+                  disabled={!rawPrompt.trim() || isRefining}
+                  className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+                >
+                  {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
+                </button>
+              </div>
+
+              {refineError && (
+                <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
+                  {refineError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* prompt */}
       <div className="mt-5 space-y-2">
         <Label
-            title="Инструкция для генерации"
-            right={
-                <span className="text-[10px] text-gray-500">{prompt.trim().length || 0}</span>
-            }
-            />
+          title={isDetailingMode ? "Опишите правку" : "Инструкция для генерации"}
+          right={
+            <span className="text-[10px] text-gray-500">
+              Токены: {promptTokenCount}
+            </span>
+          }
+        />
         <textarea
           rows={5}
           className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-          placeholder="Напр.: Change the walls to photorealistic Canadian cedar..."
+          placeholder={isDetailingMode ? "Напр.: Add a white towel on the bench" : "Напр.: Change the walls to photorealistic Canadian cedar..."}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
 
-        <button
+         <button
           type="button"
           onClick={() => setShowNeg((v) => !v)}
           className="text-xs text-gray-400 hover:text-gray-200 transition underline underline-offset-4"
         >
-          {showNeg ? "Скрыть негативный промпт" : "Показать негативный промпт"}
+          {showNeg ? "Скрыть негативный промпт" : `Показать негативный промпт (${negativeTokenCount} токенов)`}
         </button>
 
         {showNeg && (
@@ -361,9 +376,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* model */}
       <div className="mt-5 space-y-2">
-        <Label title="Модель" />
-        <div className="grid grid-cols-4 gap-2"> 
-        {/* ↑↑↑ Теперь тут жестко 4 колонки и небольшой зазор. */}
+        <Label title="Модель" />
+        <div className="grid grid-cols-4 gap-2">
           {(["flux", "qwen", "seedream", "gemini"] as Model[]).map((m) => {
             const isActive = selectedModel === m;
             return (
@@ -474,8 +488,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </>
         )}
 
-       
-
         {selectedModel === "seedream" && (
           <>
             <Slider
@@ -487,7 +499,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onChange={handleSeedreamChange}
               name="seed"
             />
-             <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500">
               Размер изображения будет взят из исходного файла.
             </p>
           </>
@@ -513,7 +525,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
           title="Ctrl/Cmd+Enter — тоже сработает"
         >
-          {isLoading ? "Генерация..." : "Сгенерировать"}
+          {isLoading ? "Генерация..." : isDetailingMode ? "Доработать" : "Сгенерировать"}
         </button>
 
         <div className="flex items-center justify-between">

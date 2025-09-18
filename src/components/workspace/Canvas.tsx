@@ -3,7 +3,38 @@
 import React from "react";
 import { cx } from "@/lib/utils";
 
-// Пропсы для управления состоянием и отображением
+// <<< НОВОЕ: Отдельный компонент для галереи, чтобы не мусорить
+const ResultsGallery: React.FC<{
+  images: string[];
+  onSelect: (url: string) => void;
+}> = ({ images, onSelect }) => {
+  return (
+    <div className="bg-gray-850 border border-gray-800 rounded-xl">
+      <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
+        Галерея результатов (кликни, чтобы доработать)
+      </div>
+      <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
+        {images.map((url, index) => (
+          <button
+            key={url}
+            onClick={() => onSelect(url)}
+            className="aspect-square bg-gray-900 rounded-md overflow-hidden hover:ring-2 ring-cyan-500 transition-all focus:outline-none focus:ring-2"
+            title={`Выбрать результат #${index + 1} для доработки`}
+          >
+            <img
+              src={url}
+              alt={`Result ${index + 1}`}
+              className="w-full h-full object-cover"
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+// <<< ИЗМЕНЕНО: Пропсы для управления состоянием и отображением
 interface CanvasProps {
   isLoading: boolean;
   resultUrl: string | null;
@@ -13,6 +44,9 @@ interface CanvasProps {
   setTab: (tab: "source" | "result" | "compare") => void;
   comparePos: number;
   setComparePos: (pos: number) => void;
+  // <<< НОВОЕ: Пропсы для галереи
+  results: string[];
+  handleSelectResult: (url: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -24,6 +58,9 @@ export const Canvas: React.FC<CanvasProps> = ({
   setTab,
   comparePos,
   setComparePos,
+  // <<< НОВОЕ: Получаем пропсы для галереи
+  results,
+  handleSelectResult,
 }) => {
   // Инкапсулируем логику скачивания прямо здесь
   const handleDownloadSource = () => {
@@ -167,6 +204,11 @@ export const Canvas: React.FC<CanvasProps> = ({
             ))}
         </div>
       </div>
+
+      {/* <<< НОВОЕ: Рендерим галерею, если есть результаты */}
+      {results.length > 0 && (
+        <ResultsGallery images={results} onSelect={handleSelectResult} />
+      )}
 
       <div className="text-[11px] text-gray-500">
         Лайфхак: короткий промпт → выбери модель → Ctrl/Cmd+Enter. Вставка из
