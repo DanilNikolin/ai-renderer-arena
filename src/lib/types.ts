@@ -29,7 +29,7 @@ export type PersistState = {
   qwenSettings: QwenSettings;
   fluxSettings: FluxSettings;
   seedreamSettings: SeedreamSettings;
-  llmSettings: LlmSettings;
+  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> };
   sendImageToLlm: boolean;
   showRefiner: boolean;
   showNeg: boolean;

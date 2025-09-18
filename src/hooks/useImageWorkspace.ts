@@ -5,7 +5,7 @@ import { encode } from "gpt-tokenizer";
 import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings } from "@/lib/types";
 import { loadPersist, readImageDims, savePersist } from "@/lib/utils";
 
-const initialLlmSettings: LlmSettings = {
+const defaultLlmSettings: LlmSettings = {
   model: 'gpt-5-mini',
   systemPrompt: `Ты — «Промт-Инженер», специализированный AI-аналитик. Твоя задача — анализировать сырые входные данные (изображение-чертеж сауны и текстовый список материалов с уже готовыми описаниями) и скомпоновать из них сверхкороткий, убийственно-точный промт для AI-«Художника» (модели типа Qwen-Image-Edit, FLUX).
 Твои руководящие принципы:
@@ -38,6 +38,13 @@ const initialLlmSettings: LlmSettings = {
   maxCompletionTokens: 2000,
 };
 
+const initialLlmSettingsByModel: { [key in Model]?: Partial<LlmSettings> } = {
+  gemini: { ...defaultLlmSettings },
+  qwen: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ QWEN" },
+  flux: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ FLUX" },
+  seedream: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ SEEDREAM" },
+};
+
 const MAX_FILE_SIZE_MB = 10;
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
@@ -52,8 +59,8 @@ export function useImageWorkspace() {
   const [refineError, setRefineError] = useState<string | null>(null);
   const [sendImageToLlm, setSendImageToLlm] = useState(true);
   const [showRefiner, setShowRefiner] = useState(false);
-  const [llmSettings, setLlmSettings] = useState<LlmSettings>(initialLlmSettings);
-  const [negativePrompt, setNegativePrompt] = useState("blurry, ugly, deformed, text, watermark");
+  const [llmSettingsByModel, setLlmSettingsByModel] = useState(initialLlmSettingsByModel);
+  const [negativePrompt, setNegativePrompt] = useState("blurry, ugly, deformed, text, watermark");
   const [showNeg, setShowNeg] = useState(false);
   const [selectedModel, setSelectedModel] = useState<Model>("flux");
   const [isLoading, setIsLoading] = useState(false);
@@ -65,6 +72,7 @@ export function useImageWorkspace() {
   const [qwenSettings, setQwenSettings] = useState<QwenSettings>({ guidance_scale: 4, num_inference_steps: 30, seed: 0 });
   const [fluxSettings, setFluxSettings] = useState<FluxSettings>({ guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
   const [seedreamSettings, setSeedreamSettings] = useState<SeedreamSettings>({ seed: 0, width: 1024, height: 1024 });
+  const [seedreamTargetSize, setSeedreamTargetSize] = useState<1024 | 1280 | 'original'>(1024);
 
   // <<< НОВОЕ: Состояния для режима детализации
   const [results, setResults] = useState<string[]>([]);
@@ -78,6 +86,8 @@ export function useImageWorkspace() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
+  const [seedreamSizeWarning, setSeedreamSizeWarning] = useState<string | null>(null);
+  
   // --- Эффекты (Effects) ---
 
   // Загрузка состояния из localStorage при первом рендере
@@ -92,13 +102,14 @@ export function useImageWorkspace() {
     setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
     const loadedSeedream = p.seedreamSettings || {};
     setSeedreamSettings(prev => ({ ...{ seed: 0, width: 1024, height: 1024 }, ...loadedSeedream }));
-    if (p.llmSettings) setLlmSettings(p.llmSettings);
+    if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
     if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
     if (typeof p.seedLock === "boolean") setSeedLock(p.seedLock);
     if (p.tab) setTab(p.tab);
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
+    if (p.seedreamTargetSize) setSeedreamTargetSize(p.seedreamTargetSize);
   }, []);
 
   // Сохранение состояния в localStorage при изменении
@@ -110,13 +121,14 @@ export function useImageWorkspace() {
       qwenSettings,
       fluxSettings,
       seedreamSettings,
-      llmSettings,
+      llmSettingsByModel,
       sendImageToLlm,
       showRefiner,
       showNeg,
       seedLock,
       tab,
       comparePos,
+      seedreamTargetSize,
     });
   }, [
     prompt,
@@ -125,13 +137,14 @@ export function useImageWorkspace() {
     qwenSettings,
     fluxSettings,
     seedreamSettings,
-    llmSettings,
+    llmSettingsByModel,
     sendImageToLlm,
     showRefiner,
     showNeg,
     seedLock,
     tab,
     comparePos,
+    seedreamTargetSize,
   ]);
   
   // Очистка Object URL при размонтировании
@@ -154,6 +167,37 @@ export function useImageWorkspace() {
     setPromptTokenCount(encode(prompt).length);
     setNegativeTokenCount(encode(negativePrompt).length);
   }, [prompt, negativePrompt]);
+// --- Эффект для предупреждения о размере Seedream ---
+  useEffect(() => {
+    if (selectedModel !== 'seedream' || !imageInfo || seedreamTargetSize === 'original') {
+      setSeedreamSizeWarning(null);
+      return;
+    }
+
+    const { w: originalWidth, h: originalHeight } = imageInfo;
+    const ratio = originalWidth / originalHeight;
+    let targetWidth: number;
+    let targetHeight: number;
+
+    if (originalWidth >= originalHeight) {
+      targetWidth = seedreamTargetSize;
+      targetHeight = Math.round(targetWidth / ratio);
+    } else {
+      targetHeight = seedreamTargetSize;
+      targetWidth = Math.round(targetHeight * ratio);
+    }
+
+    if (targetWidth < 1024 || targetHeight < 1024) {
+      const minSide = Math.min(targetWidth, targetHeight);
+      const scaleFactor = 1024 / minSide;
+      const finalWidth = Math.round(targetWidth * scaleFactor);
+      const finalHeight = Math.round(targetHeight * scaleFactor);
+      
+      setSeedreamSizeWarning(`Внимание: Запрошенный размер слишком мал. Результат будет увеличен до ${finalWidth}x${finalHeight}px.`);
+    } else {
+      setSeedreamSizeWarning(null);
+    }
+  }, [selectedModel, imageInfo, seedreamTargetSize]);
 
   // --- Обработчики и логика ---
 
@@ -179,10 +223,18 @@ export function useImageWorkspace() {
 
   const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    setLlmSettings(prev => ({
-      ...prev,
-      [name]: type === 'number' ? parseFloat(value) : value,
-    }));
+    const parsedValue = type === 'number' ? parseFloat(value) : value;
+
+    setLlmSettingsByModel(prev => {
+      const currentModelSettings = prev[selectedModel] ?? {};
+      return {
+        ...prev,
+        [selectedModel]: {
+          ...currentModelSettings,
+          [name]: parsedValue,
+        },
+      };
+    });
   };
   
   const onRefinePrompt = async () => {
@@ -208,15 +260,16 @@ export function useImageWorkspace() {
       base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
     }
 
-    const payload = {
-      prompt: rawPrompt,
-      model: llmSettings.model,
-      system: llmSettings.systemPrompt,
-      temperature: llmSettings.temperature,
-      top_p: llmSettings.topP,
-      max_completion_tokens: llmSettings.maxCompletionTokens,
-      ...(base64Image ? { image: base64Image } : {}),
-    };
+    const activeSettings = { ...defaultLlmSettings, ...llmSettingsByModel[selectedModel] };
+    const payload = {
+      prompt: rawPrompt,
+      model: activeSettings.model,
+      system: activeSettings.systemPrompt,
+      temperature: activeSettings.temperature,
+      top_p: activeSettings.topP,
+      max_completion_tokens: activeSettings.maxCompletionTokens,
+      ...(base64Image ? { image: base64Image } : {}),
+    };
 
     try {
       const response = await fetch("/api/refine-prompt", {
@@ -265,6 +318,8 @@ export function useImageWorkspace() {
     // <<< Сброс состояния галереи и режима при загрузке нового файла
     setResults([]);
     setIsDetailingMode(false);
+    setSeedreamSizeWarning(null);
+    
 
     setSourceFile(file);
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
@@ -356,6 +411,8 @@ export function useImageWorkspace() {
     // <<< Сброс состояния галереи и режима
     setResults([]);
     setIsDetailingMode(false);
+    setSeedreamTargetSize(1024);
+    setSeedreamSizeWarning(null);
   };
 
   const onCancel = () => {
@@ -422,9 +479,36 @@ export function useImageWorkspace() {
       case "qwen":
         settings = qwenSettings;
         break;
-      case "seedream":
-        settings = { ...seedreamSettings, width: imageInfo!.w, height: imageInfo!.h };
-        break;
+      case "seedream": { 
+        let targetWidth = imageInfo!.w;
+        let targetHeight = imageInfo!.h;
+  
+        if (seedreamTargetSize !== 'original') {
+          const originalWidth = imageInfo!.w;
+          const originalHeight = imageInfo!.h;
+          const ratio = originalWidth / originalHeight;
+          const targetSide = seedreamTargetSize;
+  
+          if (originalWidth >= originalHeight) {
+            targetWidth = targetSide;
+            targetHeight = Math.round(targetSide / ratio);
+          } else {
+            targetHeight = targetSide;
+            targetWidth = Math.round(targetSide * ratio);
+          }
+        }
+
+        // <<< ФИНАЛЬНАЯ ПРОВЕРКА И АПСКЕЙЛ ПЕРЕД ОТПРАВКОЙ
+        if (targetWidth < 1024 || targetHeight < 1024) {
+            const minSide = Math.min(targetWidth, targetHeight);
+            const scaleFactor = 1024 / minSide;
+            targetWidth = Math.round(targetWidth * scaleFactor);
+            targetHeight = Math.round(targetHeight * scaleFactor);
+        }
+        
+        settings = { ...seedreamSettings, width: targetWidth, height: targetHeight };
+        break;
+      }
       case "flux":
       default:
         settings = fluxSettings;
@@ -490,8 +574,7 @@ export function useImageWorkspace() {
     setSendImageToLlm,
     showRefiner,
     setShowRefiner,
-    llmSettings,
-    setLlmSettings,
+     llmSettingsByModel,
     handleLlmSettingsChange,
     negativePrompt,
     setNegativePrompt,
@@ -529,5 +612,8 @@ export function useImageWorkspace() {
     handleSelectResult,
     promptTokenCount,
     negativeTokenCount,
+    seedreamTargetSize,
+    setSeedreamTargetSize,
+    seedreamSizeWarning,
   };
 }

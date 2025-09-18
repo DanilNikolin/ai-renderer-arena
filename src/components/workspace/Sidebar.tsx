@@ -23,13 +23,12 @@ interface SidebarProps {
   showRefiner: boolean;
   setShowRefiner: (value: React.SetStateAction<boolean>) => void;
   rawPrompt: string;
-  setRawPrompt: (value: string) => void;
-  llmSettings: LlmSettings;
-  handleLlmSettingsChange: (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => void;
-  setLlmSettings: React.Dispatch<React.SetStateAction<LlmSettings>>;
-  sendImageToLlm: boolean;
+  setRawPrompt: (value: string) => void;
+  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> }; // <<< ИЗМЕНЕНО
+  handleLlmSettingsChange: (
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
+  sendImageToLlm: boolean;
   setSendImageToLlm: (value: boolean) => void;
   onRefinePrompt: () => void;
   isRefining: boolean;
@@ -65,6 +64,9 @@ interface SidebarProps {
   isDetailingMode: boolean;
   promptTokenCount: number;
   negativeTokenCount: number;
+  seedreamTargetSize: 1024 | 1280 | 'original';
+  setSeedreamTargetSize: (size: 1024 | 1280 | 'original') => void;
+  seedreamSizeWarning: string | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -77,9 +79,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setShowRefiner,
   rawPrompt,
   setRawPrompt,
-  llmSettings,
+  llmSettingsByModel,
   handleLlmSettingsChange,
-  setLlmSettings,
   sendImageToLlm,
   setSendImageToLlm,
   onRefinePrompt,
@@ -116,7 +117,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isDetailingMode,
   promptTokenCount,
   negativeTokenCount,
+  seedreamTargetSize,
+  setSeedreamTargetSize,
+  seedreamSizeWarning,
 }) => {
+  const activeLlmSettings = React.useMemo(() => {
+    const defaults = {
+      model: 'gpt-5-mini',
+      systemPrompt: '',
+      temperature: 1.0,
+      topP: 1,
+      maxCompletionTokens: 2000,
+    };
+    return { ...defaults, ...llmSettingsByModel[selectedModel] };
+  }, [llmSettingsByModel, selectedModel]);
+
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
       {/* file */}
@@ -246,8 +261,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   name="systemPrompt"
                   rows={6}
                   className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  value={llmSettings.systemPrompt}
-                  onChange={handleLlmSettingsChange}
+                  value={activeLlmSettings.systemPrompt}
+                  onChange={handleLlmSettingsChange}
                 />
               </div>
 
@@ -259,13 +274,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         key={model}
                         onClick={() =>
-                          setLlmSettings((p) => ({ ...p, model }))
-                        }
+                        // Имитируем событие для нашего универсального хендлера
+                        handleLlmSettingsChange({
+                          target: { name: 'model', value: model },
+                        } as any)
+                      }
                         className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                          llmSettings.model === model
-                            ? "bg-cyan-600 text-white"
-                            : "hover:bg-gray-800"
-                        }`}
+                        activeLlmSettings.model === model
+                          ? "bg-cyan-600 text-white"
+                          : "hover:bg-gray-800"
+                      }`}
                       >
                         {model.replace("gpt-5-", "GPT-5 ")}
                       </button>
@@ -291,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Slider
                   label="Temperature"
                   name="temperature"
-                  value={llmSettings.temperature}
+                  value={activeLlmSettings.temperature}
                   min={0}
                   max={2}
                   step={0.1}
@@ -300,7 +318,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Slider
                   label="Top P"
                   name="topP"
-                  value={llmSettings.topP}
+                  value={activeLlmSettings.topP}
                   min={0}
                   max={1}
                   step={0.05}
@@ -309,7 +327,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Slider
                   label="Max Tokens"
                   name="maxCompletionTokens"
-                  value={llmSettings.maxCompletionTokens}
+                  value={activeLlmSettings.maxCompletionTokens}
                   min={50}
                   max={1000}
                   step={10}
@@ -490,6 +508,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {selectedModel === "seedream" && (
           <>
+            {/* <<< НАШ НОВЫЙ БЛОК УПРАВЛЕНИЯ РАЗМЕРОМ */}
+            <div>
+              <Label title="Размер вывода (длинная сторона)" />
+              <div className="grid grid-cols-3 gap-2">
+                {([1024, 1280, 'original'] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setSeedreamTargetSize(size)}
+                    className={cx(
+                      "py-2 rounded-md text-xs font-semibold",
+                      seedreamTargetSize === size
+                        ? "bg-cyan-600 text-white"
+                        : "bg-gray-900 text-gray-400 hover:bg-gray-800"
+                    )}
+                  >
+                    {size === 'original' ? 'Оригинал' : `${size}px`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* КОНЕЦ НОВОГО БЛОКА */}
+            {seedreamSizeWarning && (
+              <p className="text-[11px] text-yellow-300 bg-yellow-900/40 border border-yellow-800/50 p-2 rounded-md mt-2">
+                {seedreamSizeWarning}
+              </p>
+            )}
+
             <Slider
               label="Seed"
               value={seedreamSettings.seed}
@@ -499,9 +544,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onChange={handleSeedreamChange}
               name="seed"
             />
-            <p className="text-xs text-gray-500">
-              Размер изображения будет взят из исходного файла.
-            </p>
           </>
         )}
 
