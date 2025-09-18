@@ -9,6 +9,7 @@ import {
   MAX_FILE_SIZE_MB,
   Model,
   QwenSettings,
+  SeedreamSettings,
 } from "@/lib/types";
 import { Label, Slider } from "@/components/ui/FormControls";
 
@@ -48,6 +49,8 @@ interface SidebarProps {
   handleQwenChange: (e: ChangeEvent<HTMLInputElement>) => void;
   fluxSettings: FluxSettings;
   handleFluxChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  seedreamSettings: SeedreamSettings;
+  handleSeedreamChange: (e: ChangeEvent<HTMLInputElement>) => void;
   isReadyToGenerate: boolean;
   isLoading: boolean;
   onGenerate: () => void;
@@ -94,6 +97,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleQwenChange,
   fluxSettings,
   handleFluxChange,
+  seedreamSettings,
+  handleSeedreamChange,
   isReadyToGenerate,
   isLoading,
   onGenerate,
@@ -356,16 +361,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* model */}
       <div className="mt-5 space-y-2">
-        <Label title="Модель" />
-        <div className="grid grid-cols-3 gap-3">
-          {(["flux", "qwen", "gemini"] as Model[]).map((m) => {
+        <Label title="Модель" />
+        <div className="grid grid-cols-4 gap-2"> 
+        {/* ↑↑↑ Теперь тут жестко 4 колонки и небольшой зазор. */}
+          {(["flux", "qwen", "seedream", "gemini"] as Model[]).map((m) => {
             const isActive = selectedModel === m;
             return (
               <button
                 key={m}
                 onClick={() => setSelectedModel(m)}
                 className={cx(
-                  "py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all duration-200",
+                  "py-2.5 rounded-lg text-xs font-bold uppercase transition-all duration-200",
                   isActive
                     ? "bg-green-500 text-white shadow-lg shadow-green-500/30"
                     : "bg-gray-900 border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200 hover:border-gray-600"
@@ -465,6 +471,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onChange={handleFluxChange}
               name="seed"
             />
+          </>
+        )}
+
+       
+
+        {selectedModel === "seedream" && (
+          <>
+            <Slider
+              label="Seed"
+              value={seedreamSettings.seed}
+              min={0}
+              max={2147483647}
+              step={1}
+              onChange={handleSeedreamChange}
+              name="seed"
+            />
+             <p className="text-xs text-gray-500">
+              Размер изображения будет взят из исходного файла.
+            </p>
           </>
         )}
 

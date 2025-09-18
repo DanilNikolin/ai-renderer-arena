@@ -12,13 +12,15 @@ type ImgExt = "png" | "jpg" | "jpeg" | "webp";
 // Учитываем оба варианта изображения в теле запроса
 interface FalRequestBody {
   prompt: string;
-  image_url?: string;      // Для Qwen, Flux
-  image_urls?: string[];   // Для Nano Banana (gemini)
+  image_url?: string;
+  image_urls?: string[];
   negative_prompt?: string;
   seed?: number;
   num_inference_steps?: number;
   guidance_scale?: number;
   safety_tolerance?: number;
+  sync_mode?: boolean; // <--- ДОБАВИЛИ
+  image_size?: { width: number, height: number }; // <--- ДОБАВИЛИ
 }
 
 // Папка автосейва (env > дефолт)
@@ -30,6 +32,7 @@ const SAVE_DIR =
 const MODEL_LABELS: Record<string, string> = {
   qwen: "qwen",
   flux: "flux",
+  seedream: "sdream",
   gemini: "Nano-Banana",
 };
 
@@ -134,12 +137,24 @@ export async function POST(req: NextRequest) {
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
-      default:
-        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
-    }
+         case "seedream":
+        endpointUrl = "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
+        body.image_urls = [imageUrl];
+        body.sync_mode = true; // Важно для получения результата сразу
 
-    // Вызов FAL
-    const response = await fetch(endpointUrl, {
+        if (settings.seed != null) {
+          body.seed = settings.seed;
+        }
+        if (settings.width != null && settings.height != null) {
+          body.image_size = { width: settings.width, height: settings.height };
+        }
+        break;
+
+      default:
+        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
+    } 
+    // Вызов FAL
+    const response = await fetch(endpointUrl, {
       method: "POST",
       headers: {
         Authorization: `Key ${FAL_KEY}`,

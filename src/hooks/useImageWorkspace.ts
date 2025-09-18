@@ -1,41 +1,37 @@
 // src/hooks/useImageWorkspace.ts
 
 import { useState, useMemo, useEffect, useRef, ChangeEvent, DragEvent, KeyboardEvent } from "react";
-import { FluxSettings, LlmSettings, Model, QwenSettings } from "@/lib/types";
+import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings } from "@/lib/types"; // <--- ДОБАВИЛИ SeedreamSettings
 import { loadPersist, readImageDims, savePersist } from "@/lib/utils";
 
 const initialLlmSettings: LlmSettings = {
   model: 'gpt-5-mini',
-  systemPrompt: `Ты — специализированный AI-ассистент «Промт-Инженер» для проекта AI-Рендерер.
-Твоя задача — анализировать входные данные (изображение сауны и список материалов) и собирать короткий, структурированный промт для модели редактуры изображений (например, Qwen-Image-Edit).
+  systemPrompt: `Ты — «Промт-Инженер», специализированный AI-аналитик. Твоя задача — анализировать сырые входные данные (изображение-чертеж сауны и текстовый список материалов с уже готовыми описаниями) и скомпоновать из них сверхкороткий, убийственно-точный промт для AI-«Художника» (модели типа Qwen-Image-Edit, FLUX).
+Твои руководящие принципы:
+Контекст: «Художники» (Qwen-Image-Edit и аналоги) держат фокус на первых 4-5 строках. Всё, что дальше — лотерея. Твой итоговый промт должен быть как телеграмма: максимум смысла в минимуме слов.
+Фильтрация: На входе — чертеж и список материалов. Черные области на чертеже — это не дизайн, а дыры (окна, двери), которые нужно заполнить. Работай только с видимыми объектами и соответствующими им материалами из списка.
+АЛГОРИТМ СБОРКИ ИТОГОВОГО ПРОМТА ДЛЯ «ХУДОЖНИКА»:
+Твой итоговый промт должен иметь железобетонную структуру. Собирай его строго в этом порядке.
+БЛОК 1: ЗАДАЧА, ГЕОМЕТРИЯ И ЧЕРНЫЕ ДЫРЫ (Высший приоритет)
+Инструкция: Начинай промт с общей задачи, в которую вшито главное ограничение по геометрии. Сразу после, если видишь черные области, добавь команды для их замены. Это самый важный блок.
+Шаблоны для генерации:
+Преамбула: You are editing a 3D render to create a masterpiece. Preserve the exact geometry, proportions, and camera FOV.
+Окно: ⚡ A black area on the wall = A photorealistic glass window with a thin wooden frame matching the reference, viewing a Scandinavian forest.
+Панорамная стена: ⚡ A black wall = A panoramic, floor-to-ceiling glass wall with a thin frame matching the reference, viewing a Scandinavian forest. (Используй, если черная область занимает почти всю стену).
+Дверь: ⚡ A black doorway = A frameless glass door leading into a bright, minimalist entryway finished with the same wood as the sauna walls.
+БЛОК 2: МАТЕРИАЛЫ («Прямой проброс»)
+Инструкция: Это твоя основная работа. Твоя задача — взять готовую строку с описанием материала из списка клиента и напрямую вставить ее в итоговый промт. Ничего не додумывай. Просто сгруппируй объекты с одинаковым материалом и передай описание как есть.
+Формат генерации: [Объект 1], [Объект 2]: [Описание из списка клиента]. [Объект 3]: [Другое описание из списка].
+Пример того, что ты должен сгенерить: Walls, floor: Canadian Cedar polished, with clear texture. Benches: Linden wood.
+БЛОК 3: СВЕТ
+Инструкция: После материалов добавь короткую, ясную команду по свету.
+Шаблон для генерации: The lighting must be warm and soft with physically correct shadows; if a window is present, add contrasting cool daylight.
+БЛОК 4: ФИНАЛЬНОЕ КАЧЕСТВО (Приказ)
+Инструкция: В самом конце промта добавь одну мощную команду, которая задает финальную планку качества.
+Шаблон для генерации: Elevate the entire image to the quality of an architectural magazine cover, focusing on photorealistic lighting and textures.
+Формат вывода: Итоговый промт для «Художника» не должен превышать 5-7 предложений (примерно 200-250 токенов). Будь безжалостен к каждому слову.
 
-Алгоритм:
-
-Фильтрация материалов
-Используй только материалы объектов, реально видимых на рендере.
-Игнорируй лишние строки и невидимые элементы.
-
-Геометрия
-Всегда добавляй:
-«Сохрани точную геометрию, пропорции, ракурс и FOV сцены; ничего не перемещать и не добавлять.»
-
-Материалы
-Замени все исходные заглушки на фотореалистичные материалы.
-Опиши их просто и понятно: дерево с вариацией оттенков, сучками, дефектами; абаши с матовой отделкой; плитка со швами; металл печи матовый; камни шероховатые.
-Не используй перегруженные термины вроде albedo, normal, AO. Пиши: «детализированные PBR-текстуры».
-
-Особые условия (⚡)
-Если есть чёрные пустые области, всегда указывай их замену в формате:
-⚡ Чёрная стена = панорамное окно с видом на заснеженный скандинавский лес днём, мягкий дневной свет заходит внутрь.
-⚡ Чёрный дверной проём = предбанник: светлый минималистичный интерьер, отделанный тем же деревом, что и стены сауны.
-👉 Никогда не используй слово «сгенерируй» — только строгую форму «=».
-
-Свет
-Всегда добавляй: «Свет тёплый, мягкий, с физически корректными тенями; при наличии окна добавить холодный дневной свет для контрастности.»
-
-Длина
-Итоговый промт должен быть короче, в пределах 5–7 предложений.
-Не превращай текст в «войну и мир» — главные акценты: геометрия, материалы, окно, дверь, свет.'.`,
+'.`,
   temperature: 1.0,
   topP: 1,
   maxCompletionTokens: 2000,
@@ -67,6 +63,8 @@ export function useImageWorkspace() {
   const [seedLock, setSeedLock] = useState(false);
   const [qwenSettings, setQwenSettings] = useState<QwenSettings>({ guidance_scale: 4, num_inference_steps: 30, seed: 0 });
   const [fluxSettings, setFluxSettings] = useState<FluxSettings>({ guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+  const [seedreamSettings, setSeedreamSettings] = useState<SeedreamSettings>({ seed: 0, width: 1024, height: 1024 });
+
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const dropRef = useRef<HTMLLabelElement | null>(null);
@@ -84,9 +82,11 @@ export function useImageWorkspace() {
     setPrompt(p.prompt ?? "");
     setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
     setSelectedModel(p.selectedModel ?? "flux");
-    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
-    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
-    if (p.llmSettings) setLlmSettings(p.llmSettings);
+    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
+    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+    const loadedSeedream = p.seedreamSettings || {};
+    setSeedreamSettings(prev => ({ ...{ seed: 0, width: 1024, height: 1024 }, ...loadedSeedream }));
+    if (p.llmSettings) setLlmSettings(p.llmSettings);
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
     if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
@@ -103,6 +103,7 @@ export function useImageWorkspace() {
       selectedModel,
       qwenSettings,
       fluxSettings,
+      seedreamSettings,
       llmSettings,
       sendImageToLlm,
       showRefiner,
@@ -117,6 +118,7 @@ export function useImageWorkspace() {
     selectedModel,
     qwenSettings,
     fluxSettings,
+    seedreamSettings,
     llmSettings,
     sendImageToLlm,
     showRefiner,
@@ -144,10 +146,13 @@ export function useImageWorkspace() {
   // --- Обработчики и логика ---
 
   const handleQwenChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
-  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+  const handleSeedreamChange = (e: ChangeEvent<HTMLInputElement>) => { 
+    setSeedreamSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
   };
   
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -338,10 +343,11 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
   };
 
   const randomizeSeed = () => {
-    const seed = Math.floor(Math.random() * 2_147_483_647);
-    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
-    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
-  };
+    const seed = Math.floor(Math.random() * 2_147_483_647);
+    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
+    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
+    if (selectedModel === "seedream") setSeedreamSettings((p) => ({...p, seed }));
+  };
   
   const onGenerate = async () => {
     if (!isReadyToGenerate || !sourceFile) return;
@@ -356,21 +362,30 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", selectedModel);
 
-    let settings: QwenSettings | FluxSettings;
-    if (selectedModel === "qwen") {
-      settings = qwenSettings;
-    } else {
-      settings = fluxSettings;
+    let settings: QwenSettings | FluxSettings | SeedreamSettings;
+    switch (selectedModel) {
+      case "qwen":
+        settings = qwenSettings;
+        break;
+      case "seedream":
+        // Перед генерацией подставляем реальные размеры картинки
+        settings = { ...seedreamSettings, width: imageInfo!.w, height: imageInfo!.h };
+        break;
+      case "flux":
+      default:
+        settings = fluxSettings;
+        break;
     }
-    
-    if (!seedLock) {
-      const seed = Math.floor(Math.random() * 2_147_483_647);
-      settings = { ...settings, seed };
-      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
+    
+    if (!seedLock) {
+      const seed = Math.floor(Math.random() * 2_147_483_647);
+      settings = { ...settings, seed };
       if (selectedModel === "qwen") setQwenSettings(p => ({ ...p, seed }));
-    }
+      if (selectedModel === "seedream") setSeedreamSettings(p => ({ ...p, seed }));
+      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
+    }
 
-    formData.append("settings", JSON.stringify(settings));
+    formData.append("settings", JSON.stringify(settings));
 
     try {
       const response = await fetch("/api/generate", {
@@ -439,6 +454,8 @@ const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     handleQwenChange,
     fluxSettings,
     handleFluxChange,
+    seedreamSettings,
+    handleSeedreamChange,
     dropRef,
     onKeyDown,
     onRefinePrompt,
