@@ -141,68 +141,70 @@ export const Canvas: React.FC<CanvasProps> = ({
             : "Сравнение (двигай слайдер)"}
         </div>
 
-        <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
-          {/* loading overlay */}
-          {isLoading && (
-            <div
-              className="absolute inset-0 bg-gray-800/50 animate-pulse"
-              aria-label="loading"
-            />
-          )}
+       <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
+  {/* --- ОБЩИЙ БЛОК ДЛЯ ВСЕХ СОСТОЯНИЙ --- */}
+  
+  {/* Исходник (виден всегда, кроме таба "Результат") */}
+  {tab !== "result" && !sourceUrl && (
+    <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
+      Загрузите изображение
+    </div>
+  )}
+  {tab !== "result" && sourceUrl && (
+    <img
+      src={sourceUrl}
+      alt="Source"
+      className="absolute inset-0 w-full h-full object-contain"
+    />
+  )}
 
-          {/* source */}
-          {tab !== "result" &&
-            (sourceUrl ? (
-              <img
-                src={sourceUrl}
-                alt="Source"
-                className="absolute inset-0 w-full h-full object-contain"
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-                Загрузите изображение
-              </div>
-            ))}
+  {/* Результат (виден только в табах "Результат" и "Сравнение") */}
+  {tab !== "source" && !resultUrl && (
+    <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
+      Пока пусто
+    </div>
+  )}
+  {tab === "result" && resultUrl && (
+    <img
+      src={resultUrl}
+      alt="Result"
+      className="absolute inset-0 w-full h-full object-contain"
+    />
+  )}
 
-          {/* result */}
-          {tab !== "source" &&
-            (resultUrl ? (
-              tab === "compare" ? (
-                <>
-                  <img
-                    src={resultUrl}
-                    alt="Result"
-                    className="absolute inset-0 w-full h-full object-contain"
-                    style={{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }}
-                  />
-                  <div
-                    className="absolute inset-0 pointer-events-none border-l-2 border-cyan-500"
-                    style={{ left: `${comparePos}%` }}
-                  />
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={comparePos}
-                    onChange={(e) => setComparePos(Number(e.target.value))}
-                    className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[60%] h-2 bg-gray-700 rounded-lg appearance-none accent-cyan-500"
-                  />
-                </>
-              ) : (
-                <img
-                  src={resultUrl}
-                  alt="Result"
-                  className="absolute inset-0 w-full h-full object-contain"
-                />
-              )
-            ) : (
-              tab !== "source" && (
-                <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-                  Пока пусто
-                </div>
-              )
-            ))}
-        </div>
+  {/* Блок сравнения (активен только в табе "Сравнение" и если есть обе картинки) */}
+  {tab === "compare" && sourceUrl && resultUrl && (
+    <>
+      {/* Исходник уже отрендерен выше как фон, теперь рендерим результат поверх с обрезкой */}
+      <img
+        src={resultUrl}
+        alt="Result (clipped)"
+        className="absolute inset-0 w-full h-full object-contain"
+        style={{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }}
+      />
+      <div
+        className="absolute inset-y-0 w-0.5 bg-cyan-500/70 pointer-events-none"
+        style={{ left: `${comparePos}%` }}
+      />
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={comparePos}
+        onChange={(e) => setComparePos(Number(e.target.value))}
+        className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[60%] h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+      />
+    </>
+  )}
+
+  {/* Оверлей загрузки (поверх всего) */}
+  {isLoading && (
+    <div
+      className="absolute inset-0 bg-gray-800/50 animate-pulse"
+      aria-label="loading"
+    />
+  )}
+</div>
       </div>
 
       {/* <<< НОВОЕ: Рендерим галерею, если есть результаты */}

@@ -147,14 +147,28 @@ export function useImageWorkspace() {
     seedreamTargetSize,
   ]);
   
-  // Очистка Object URL при размонтировании
+  useEffect(() => {
+    // Эта функция очистки сработает только перед тем,
+    // как sourceUrl будет изменен на новый, или при размонтировании.
+    return () => {
+      if (sourceUrl && sourceUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(sourceUrl);
+      }
+    };
+  }, [sourceUrl]); // <-- Зависимость ТОЛЬКО от sourceUrl
+
+  // Эффект №2: Чистит URL галереи только один раз при размонтировании компонента.
   useEffect(() => {
     return () => {
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-      // <<< ИЗМЕНЕНО: Также чистим URL'ы из галереи
-      results.forEach(url => URL.revokeObjectURL(url));
+      // Это нужно, если мы решим делать превьюшки через blob,
+      // для обычных URL это не сработает, но пусть будет на будущее.
+      results.forEach(url => {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
     };
-  }, [sourceUrl, results]);
+  }, []); // <-- Пустой массив зависимостей = сработает 1 раз при unmount.
   
   // Обработчик вставки из буфера обмена
   useEffect(() => {
@@ -444,6 +458,8 @@ export function useImageWorkspace() {
       if (sourceUrl) URL.revokeObjectURL(sourceUrl);
       const newSourceUrl = URL.createObjectURL(file);
       setSourceUrl(newSourceUrl);
+
+      setResultUrl(null);
       
       const dims = await readImageDims(file);
       setImageInfo(dims);
