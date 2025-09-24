@@ -67,6 +67,10 @@ interface SidebarProps {
   seedreamTargetSize: 1024 | 1280 | 'original';
   setSeedreamTargetSize: (size: 1024 | 1280 | 'original') => void;
   seedreamSizeWarning: string | null;
+  windowView: string;
+  setWindowView: (value: string) => void;
+  doorView: string;
+  setDoorView: (value: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -120,6 +124,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   seedreamTargetSize,
   setSeedreamTargetSize,
   seedreamSizeWarning,
+  windowView,
+  setWindowView,
+  doorView,
+  setDoorView,
 }) => {
   const activeLlmSettings = React.useMemo(() => {
     const defaults = {
@@ -186,6 +194,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         </label>
       </div>
+      
+
 
       {/* JSON Viewer */}
       <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
@@ -226,6 +236,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* <<< НАЧАЛО ЗАМЕНЫ */}
+      <div className="mt-5 space-y-4 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+          <h3 className="text-sm font-medium text-gray-200">Настройка окружения</h3>
+
+          {(() => {
+            // --- Шаблоны для ОКОН ---
+            const windowTemplates = [
+              { label: 'Лес летний', value: 'a lush green summer forest with sunbeams filtering through the leaves' },
+              { label: 'Лес зимний', value: 'a quiet, snow-covered winter forest with tall pine trees' },
+              { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky' },
+              { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence' },
+              { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow' },
+            ];
+            
+            // --- Шаблоны для ДВЕРЕЙ ---
+            const doorTemplates = [
+              { label: 'Предбанник', value: 'a cozy antechamber (changing room) with wooden benches' },
+              { label: 'Современный коридор', value: 'a modern, minimalist hallway with soft lighting' },
+              { label: 'Раздевалка', value: 'a clean, bright locker room with wooden cabinets' },
+              { label: 'Другая комната', value: 'another sauna room, slightly out of focus' },
+            ];
+
+            // --- Универсальный обработчик для обоих селекторов ---
+            const handleTemplateChange = (e: ChangeEvent<HTMLSelectElement>, setter: (val: string) => void) => {
+              const value = e.target.value;
+              if (value) {
+                setter(value);
+              }
+            };
+            
+            return (
+              <>
+                {/* Window View */}
+                <div>
+                  <Label title="Вид из окна" />
+                  <div className="flex gap-2">
+                    <select 
+                      onChange={(e) => handleTemplateChange(e, setWindowView)}
+                      className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      <option value="">Шаблоны...</option>
+                      {windowTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                    <input
+                        type="text"
+                        value={windowView}
+                        onChange={(e) => setWindowView(e.target.value)}
+                        className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        placeholder="... или впиши свой вариант"
+                    />
+                  </div>
+                </div>
+
+                {/* Door View */}
+                <div>
+                  <Label title="Вид за дверью" />
+                  <div className="flex gap-2">
+                    <select 
+                      onChange={(e) => handleTemplateChange(e, setDoorView)}
+                      className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      <option value="">Шаблоны...</option>
+                      {doorTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                    <input
+                        type="text"
+                        value={doorView}
+                        onChange={(e) => setDoorView(e.target.value)}
+                        className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        placeholder="... или впиши свой вариант"
+                    />
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+      </div>
+      {/* <<< КОНЕЦ ЗАМЕНЫ */}
       
       {/* <<< ИЗМЕНЕНИЕ: Весь блок промпт-инженера теперь показывается по условию */}
       {!isDetailingMode && (
