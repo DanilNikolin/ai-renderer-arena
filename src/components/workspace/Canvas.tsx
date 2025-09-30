@@ -8,62 +8,98 @@ import Image from "next/image";
 const BaseResultsTray: React.FC<{
   nodes: GenerationNode[];
   selectedUrl: string | null;
-  // onSelect принимает весь узел
   onSelect: (node: GenerationNode) => void;
   onPromote: (id: string) => void;
   onDelete: (id: string) => void;
-}> = ({ nodes, selectedUrl, onSelect, onPromote, onDelete }) => {
+  isWorkspace?: (id: string) => boolean;
+  onDeleteWorkspace?: (id: string) => void;
+}> = ({ nodes, selectedUrl, onSelect, onPromote, onDelete, isWorkspace, onDeleteWorkspace }) => {
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
         Лоток базовых результатов (кликни для сравнения, затем отправь в PRO)
       </div>
       <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
-        {nodes.map((node) => (
-          <div key={node.id} className="relative group">
-            <button
-              onClick={() => onSelect(node)}
-              title="Выбрать для сравнения"
-              className={cx(
-                "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
-                node.imageUrl === selectedUrl
-                  ? "ring-2 ring-cyan-500"
-                  : "hover:ring-2 ring-gray-600"
+        {nodes.map((node) => {
+          const isProWorkspace = isWorkspace?.(node.id) ?? false;
+          return (
+            <div key={node.id} className="relative group">
+              <button
+                onClick={() => (isProWorkspace ? onPromote(node.id) : onSelect(node))}
+                title={isProWorkspace ? "Переключиться на этот воркспейс" : "Выбрать для сравнения"}
+                className={cx(
+                  "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
+                  node.imageUrl === selectedUrl
+                    ? "ring-2 ring-cyan-500"
+                    : "hover:ring-2 ring-gray-600",
+                  isProWorkspace && "border-2 border-cyan-700/50" // Подсвечиваем воркспейсы
+                )}
+              >
+                <Image
+                  src={node.imageUrl}
+                  alt={`Base result ${node.id}`}
+                  fill
+                  sizes="120px"
+                  className="object-cover"
+                />
+                {isProWorkspace && (
+                   <div className="absolute top-0 left-0 bg-cyan-800/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">PRO</div>
+                )}
+              </button>
+
+              {/* БЫЛО:
+              <button
+                onClick={() => onDelete(node.id)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Удалить"
+                aria-label="Удалить"
+              >
+                ✕
+              </button>
+              <button
+                onClick={() => onPromote(node.id)}
+                className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Отправить в PRO"
+              >
+                В PRO →
+              </button>
+              */}
+              
+              {/* СТАЛО: Умные кнопки */}
+              {!isProWorkspace ? (
+                <>
+                  <button
+                    onClick={() => onDelete(node.id)}
+                    className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Удалить базовый результат"
+                  >
+                    ✕
+                  </button>
+                  <button
+                    onClick={() => onPromote(node.id)}
+                    className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Отправить в PRO"
+                  >
+                    В PRO →
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => onDeleteWorkspace?.(node.id)}
+                  className="absolute bottom-1 right-1 text-[10px] font-bold bg-red-700/90 hover:bg-red-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Удалить весь воркспейс"
+                >
+                  Удалить PRO
+                </button>
               )}
-            >
-              <Image
-                src={node.imageUrl}
-                alt={`Base result ${node.id}`}
-                fill
-                sizes="120px"
-                className="object-cover"
-              />
-            </button>
-
-            {/* Кнопка удаления */}
-            <button
-              onClick={() => onDelete(node.id)}
-              className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Удалить"
-              aria-label="Удалить"
-            >
-              ✕
-            </button>
-
-            {/* Отправить в PRO */}
-            <button
-              onClick={() => onPromote(node.id)}
-              className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Отправить в PRO"
-            >
-              В PRO →
-            </button>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 };
+
 
 // --- Внутренний компонент №2: Сравнение "до/после" ---
 const CompareView: React.FC<{
@@ -186,71 +222,47 @@ const GenerationTree: React.FC<{
 
 // --- ОСНОВНОЙ КОМПОНЕНТ CANVAS ---
 interface CanvasProps {
-  // Общие
   isLoading: boolean;
   sourceFile: File | null;
-
-  // Патч: добавили fallback-URL исходника
   sourceUrl: string | null;
-
-  // Управление вкладками
   activeTab: "BASE" | "PRO";
-
-  // Для BASE и "Прихожей"
   baseResults: GenerationNode[];
   selectedBaseResultUrl: string | null;
-
-  // Источник для сравнения (из истории) + выбор результата
   compareSourceUrl: string | null;
   selectBaseResultForCompare: (node: GenerationNode) => void;
-
   comparePos: number;
   setComparePos: (pos: number) => void;
-
-  // Для PRO-"Мастерской"
   activeHistory: GenerationNode[];
   activeNodeId: string | null;
   setActiveNodeId: (id: string) => void;
   activeNode: GenerationNode | null;
-
-  // Общие
   handlePromoteToPro: (id: string) => void;
-
-  // Патч: удаление базового результата
   deleteBaseResult: (nodeId: string) => void;
+  // СТАЛО: Пропсы для работы с воркспейсами
+  workspaces: { [rootNodeId: string]: GenerationNode[] };
+  deleteWorkspace: (workspaceId: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   isLoading,
   sourceFile,
-
-  // Патч: новый проп для фолбэка
   sourceUrl,
-
-  // Tabs
   activeTab,
-
-  // BASE
   baseResults,
   selectedBaseResultUrl,
-
   compareSourceUrl,
   selectBaseResultForCompare,
-
   comparePos,
   setComparePos,
-
-  // PRO
   activeHistory,
   activeNodeId,
   setActiveNodeId,
   activeNode,
-
-  // Общие
   handlePromoteToPro,
-
-  // Патч
   deleteBaseResult,
+  // СТАЛО: Получаем новые пропсы
+  workspaces,
+  deleteWorkspace,
 }) => {
   const handleDownloadSource = () => {
     if (!sourceFile) return;
@@ -275,7 +287,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   return (
     <section className="space-y-4">
-      {/* Верхняя панель */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-400">
           {isLoading ? "Обработка…" : "Готово"}
@@ -298,7 +309,6 @@ export const Canvas: React.FC<CanvasProps> = ({
         </div>
       </div>
 
-      {/* Просмотр */}
       <div className="bg-gray-850 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
           {activeTab === "BASE"
@@ -309,7 +319,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
         {activeTab === "BASE" && (
           <CompareView
-            // Патч: если нет "воспоминания" из истории — берём текущий скетч
             sourceUrl={compareSourceUrl || sourceUrl}
             resultUrl={selectedBaseResultUrl}
             comparePos={comparePos}
@@ -338,21 +347,20 @@ export const Canvas: React.FC<CanvasProps> = ({
         )}
       </div>
 
-      {/* Таб BASE: всегда показываем лоток */}
       {activeTab === "BASE" && baseResults.length > 0 && (
         <BaseResultsTray
           nodes={baseResults}
-          selectedUrl={selectedBaseResultUrl}
+          selectedUrl={null}
           onSelect={selectBaseResultForCompare}
           onPromote={handlePromoteToPro}
           onDelete={deleteBaseResult}
+          isWorkspace={(id) => !!workspaces[id]}
+          onDeleteWorkspace={deleteWorkspace}
         />
       )}
 
-      {/* Таб PRO: показываем либо "Прихожую", либо "Мастерскую" */}
       {activeTab === "PRO" && (
         <>
-          {/* "Прихожая": нет истории, но есть базовые результаты */}
           {activeHistory.length === 0 && baseResults.length > 0 && (
             <div className="bg-gray-850 border border-gray-800 rounded-xl">
               <div className="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-yellow-300">
@@ -361,14 +369,16 @@ export const Canvas: React.FC<CanvasProps> = ({
               <BaseResultsTray
                 nodes={baseResults}
                 selectedUrl={null}
-                onSelect={() => {}}
+                onSelect={selectBaseResultForCompare}
                 onPromote={handlePromoteToPro}
                 onDelete={deleteBaseResult}
+                // СТАЛО: Передаем логику для работы с воркспейсами
+                isWorkspace={(id) => !!workspaces[id]}
+                onDeleteWorkspace={deleteWorkspace}
               />
             </div>
           )}
 
-          {/* "Мастерская": когда есть история */}
           {activeHistory.length > 0 && (
             <GenerationTree
               nodes={activeHistory}

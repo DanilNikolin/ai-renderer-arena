@@ -38,6 +38,26 @@ export function loadPersist(): PersistState | null {
  */
 export function savePersist(s: PersistState) {
   try {
-    localStorage.setItem("image_workspace_v2", JSON.stringify(s));
-  } catch {}
+    // Создаем глубокую копию, чтобы не мутировать оригинальный state
+    const stateToSave = JSON.parse(JSON.stringify(s));
+
+    // Вырезаем жирные Data URL из baseResults
+    if (stateToSave.baseResults) {
+      stateToSave.baseResults.forEach((node: GenerationNode) => {
+        delete (node as any).sourceImageUrl;
+      });
+    }
+    // И из всех воркспейсов
+    if (stateToSave.workspaces) {
+      Object.keys(stateToSave.workspaces).forEach(wsId => {
+        stateToSave.workspaces[wsId].forEach((node: GenerationNode) => {
+          delete (node as any).sourceImageUrl;
+        });
+      });
+    }
+
+    localStorage.setItem("image_workspace_v2", JSON.stringify(stateToSave));
+  } catch (e) {
+    console.error("НЕ УДАЛОСЬ СОХРАНИТЬ СОСТОЯНИЕ:", e);
+  }
 }

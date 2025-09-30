@@ -26,8 +26,8 @@ const initialLlmSettingsByModel: { [key in Model]?: Partial<LlmSettings> } = {
 export function useImageWorkspace() {
   const {
     sourceFile,
-    sourceUrl,         // <<< Используем для отображения
-    sourceDataUrl,     // <<< Используем для сохранения
+    sourceUrl,
+    sourceDataUrl,
     imageInfo,
     fileError,
     dropRef,
@@ -71,9 +71,9 @@ export function useImageWorkspace() {
   }, [fileError]);
 
   const activeHistory = useMemo(
-    () => workspaces[activeWorkspaceId ?? ""] ?? [],
-    [workspaces, activeWorkspaceId]
-  );
+  () => workspaces[activeWorkspaceId ?? ""] ?? [],
+  [workspaces, activeWorkspaceId]
+);
   const activeNode = useMemo(
     () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
     [activeNodeId, activeHistory]
@@ -92,10 +92,8 @@ export function useImageWorkspace() {
   useEffect(() => {
     if (sourceFile) {
       setError(null);
-      // Сбрасываем и результат, и его исходник, чтобы канвас обновился
       setSelectedBaseResultUrl(null);
-      setCompareSourceUrl(null); // <<< ВОТ ОНА, НЕДОСТАЮЩАЯ СТРОЧКА
-      // Принудительно переключаем на вкладку BASE
+      setCompareSourceUrl(null);
       setActiveTab("BASE");
     }
   }, [sourceFile]);
@@ -104,11 +102,41 @@ export function useImageWorkspace() {
   useEffect(() => {
     const p = loadPersist();
     if (!p) return;
+
+    // --- НАЧАЛО ПАТЧА ---
+    // Валидация состояния PRO-режима перед загрузкой
+    const loadedWorkspaces = p.workspaces ?? {};
+    const loadedActiveWorkspaceId = p.activeWorkspaceId ?? null;
+    const loadedActiveNodeId = p.activeNodeId ?? null;
+
+    let finalActiveWorkspaceId = null;
+    let finalActiveNodeId = null;
+    let finalActiveTab = p.activeTab ?? "BASE";
+
+    // Проверяем, что сохраненный воркспейс и узел все еще существуют
+    if (
+      loadedActiveWorkspaceId &&
+      loadedWorkspaces[loadedActiveWorkspaceId] &&
+      loadedWorkspaces[loadedActiveWorkspaceId].some(node => node.id === loadedActiveNodeId)
+    ) {
+      // Все заебись, состояние консистентное. Восстанавливаем.
+      finalActiveWorkspaceId = loadedActiveWorkspaceId;
+      finalActiveNodeId = loadedActiveNodeId;
+    } else if (finalActiveTab === "PRO") {
+      // Если что-то пошло не так, а мы пытались загрузиться в PRO,
+      // принудительно валимся в BASE, чтобы не показывать пустой экран.
+      finalActiveTab = "BASE";
+    }
+
+    setWorkspaces(loadedWorkspaces);
+    setActiveWorkspaceId(finalActiveWorkspaceId);
+    setActiveNodeId(finalActiveNodeId);
+    setActiveTab(finalActiveTab);
+    // --- КОНЕЦ ПАТЧА ---
+
+    // Остальные настройки грузим как обычно
     setBaseResults(p.baseResults ?? []);
-    setActiveTab(p.activeTab ?? "BASE");
     setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
-    setWorkspaces(p.workspaces ?? {});
-    setActiveWorkspaceId(p.activeWorkspaceId ?? null);
     setPrompt(p.prompt ?? "");
     setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
     if (p.selectedModel) settingsManager.setSelectedModel(p.selectedModel);
@@ -122,8 +150,7 @@ export function useImageWorkspace() {
     if (typeof p.seedLock === "boolean") settingsManager.setSeedLock(p.seedLock);
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
-  }, []);
-
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // persist save
   useEffect(() => {
     savePersist({
@@ -139,13 +166,15 @@ export function useImageWorkspace() {
       selectedBaseResultUrl,
       workspaces,
       activeWorkspaceId,
+      // СТАЛО: Сохраняем ID активного узла
+      activeNodeId,
       selectedModel: settingsManager.selectedModel,
       qwenSettings: settingsManager.qwenSettings,
       fluxSettings: settingsManager.fluxSettings,
       seedreamSettings: settingsManager.seedreamSettings,
       seedLock: settingsManager.seedLock,
       seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: "compare", // deprecated
+      tab: "compare", 
     });
   }, [
     prompt,
@@ -160,8 +189,16 @@ export function useImageWorkspace() {
     selectedBaseResultUrl,
     workspaces,
     activeWorkspaceId,
-    settingsManager,
-  ]);
+    activeNodeId,
+    // Раскладываем settingsManager на конкретные поля, чтобы исключить лишние срабатывания
+    settingsManager.selectedModel,
+    settingsManager.qwenSettings,
+    settingsManager.fluxSettings,
+    settingsManager.seedreamSettings,
+    settingsManager.seedLock,
+    settingsManager.seedreamTargetSize,
+  ]
+  );
 
   useEffect(() => {
     setPromptTokenCount(encode(prompt || "").length);
@@ -185,6 +222,76 @@ export function useImageWorkspace() {
       onGenerate();
     }
     if (e.key === "Escape" && isLoading) onCancel();
+  };
+
+  const onGenerateBackgroundReplacement = async (
+    referenceFile: File,
+    targets: { window: boolean; door: boolean },
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    let targetAreas = [];
+    if (targets.window) targetAreas.push("the windows");
+    if (targets.door) targetAreas.push("the glass door");
+    const promptTarget = targetAreas.join(" and ");
+
+    if (!promptTarget) return fail("Не выбраны цели для замены фона.");
+
+    const prompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
+
+    let sourceImageFile: File;
+    try {
+      const response = await fetch(activeNode.imageUrl);
+      const blob = await response.blob();
+      sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
+    } catch {
+      return fail("Не удалось загрузить изображение из активного узла.");
+    }
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", sourceImageFile);
+    formData.append("reference_image", referenceFile);
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -287,7 +394,7 @@ export function useImageWorkspace() {
         id: crypto.randomUUID(),
         parentId,
         imageUrl: data.imageUrl,
-        sourceImageUrl: activeTab === 'BASE' ? sourceDataUrl : activeNode?.sourceImageUrl ?? null, // <<< ИСПОЛЬЗУЕМ ВЕЧНЫЙ URL
+        sourceImageUrl: activeTab === 'BASE' ? sourceDataUrl : activeNode?.sourceImageUrl ?? null,
         prompt,
         negativePrompt,
         model: settingsManager.selectedModel,
@@ -386,12 +493,25 @@ export function useImageWorkspace() {
 
   const handlePromoteToPro = (nodeId: string) => {
     const nodeToPromote = baseResults.find((node) => node.id === nodeId);
-    if (!nodeToPromote) return fail("Не удалось найти узел.");
-    if (!workspaces[nodeToPromote.id]) {
-      setWorkspaces((prev) => ({ ...prev, [nodeToPromote.id]: [nodeToPromote] }));
+    if (!nodeToPromote) {
+      return fail("Критическая ошибка: не найден базовый узел для 'продвижения'.");
     }
-    setActiveWorkspaceId(nodeToPromote.id);
-    setActiveNodeId(nodeToPromote.id);
+
+    // Если воркспейс для этого узла УЖЕ существует, просто переключаемся на него.
+    if (workspaces[nodeId]) {
+      const history = workspaces[nodeId];
+      // Важно: делаем активным ПОСЛЕДНИЙ узел в истории этого воркспейса.
+      setActiveNodeId(history[history.length - 1].id);
+    } else {
+      // Если нет — создаем новый воркспейс.
+      const clonedRootNode = { ...nodeToPromote };
+      setWorkspaces((prev) => ({ ...prev, [nodeId]: [clonedRootNode] }));
+      // Первый узел в новом воркспейсе - это он сам.
+      setActiveNodeId(nodeId);
+    }
+    
+    // В любом случае, мы делаем этот воркспейс активным и переходим в PRO.
+    setActiveWorkspaceId(nodeId);
     setActiveTab("PRO");
   };
 
@@ -399,6 +519,7 @@ export function useImageWorkspace() {
     setBaseResults((prev) => prev.filter((node) => node.id !== nodeId));
   };
 
+  // СТАЛО: Новая функция-киллер
   const deleteWorkspace = (workspaceId: string) => {
     setWorkspaces((prev) => {
       const newWorkspaces = { ...prev };
@@ -408,13 +529,14 @@ export function useImageWorkspace() {
     if (activeWorkspaceId === workspaceId) {
       setActiveWorkspaceId(null);
       setActiveNodeId(null);
+      setActiveTab('BASE');
     }
   };
 
   return {
     ...settingsManager,
     sourceFile,
-    sourceUrl, // <<< ВОЗВРАЩАЕМ БЫСТРЫЙ URL ДЛЯ КАНВАСА
+    sourceUrl,
     imageInfo,
     onFileChange,
     onDrop,
@@ -432,6 +554,8 @@ export function useImageWorkspace() {
     activeNode,
     activeNodeId,
     setActiveNodeId,
+    // СТАЛО: Отдаем сам объект воркспейсов наружу
+    workspaces,
     comparePos,
     setComparePos,
     isLoading,
@@ -466,6 +590,7 @@ export function useImageWorkspace() {
     jsonError,
     onJsonFileChange,
     onGenerate,
+    onGenerateBackgroundReplacement,
     onClear,
     onCancel,
     onKeyDown,

@@ -47,7 +47,7 @@ export type PersistState = {
   seedLock: boolean;
   tab: "source" | "result" | "compare"; // <<< Это старое поле, его можно будет потом убрать, но пока оставим
   comparePos: number;
-  seedreamTargetSize: 1024 | 1280 | 'original'; // <<< ВОТ ЧЕГО НЕ ХВАТАЛО
+  seedreamTargetSize: 1024 | 1280 | 'original'; 
 
   // Новая структура
   activeTab: 'BASE' | 'PRO';
@@ -55,4 +55,5 @@ export type PersistState = {
   selectedBaseResultUrl: string | null;
   workspaces: { [rootNodeId: string]: GenerationNode[] };
   activeWorkspaceId: string | null;
+  activeNodeId: string | null;
 };

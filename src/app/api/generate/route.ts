@@ -10,11 +10,10 @@ export const dynamic = "force-dynamic";
 // ===== Типы и константы =====
 type ImgExt = "png" | "jpg" | "jpeg" | "webp";
 
-// Учитываем оба варианта изображения в теле запроса
 interface FalRequestBody {
   prompt: string;
   image_url?: string;
-  image_urls?: string[];
+  image_urls?: string[]; // <<< Теперь это массив для мульти-аплоада
   negative_prompt?: string;
   seed?: number;
   num_inference_steps?: number;
@@ -24,12 +23,10 @@ interface FalRequestBody {
   image_size?: { width: number, height: number };
 }
 
-// Папка автосейва (env > дефолт)
 const SAVE_DIR =
   process.env.IMAGES_SAVE_PATH ||
   "D:\\Work\\images from Image test for 3Dims (3 models)";
 
-// Метки для префикса файлов
 const MODEL_LABELS: Record<string, string> = {
   qwen: "qwen",
   flux: "flux",
@@ -38,6 +35,13 @@ const MODEL_LABELS: Record<string, string> = {
 };
 
 // ===== Вспомогалки =====
+
+// <<< НОВАЯ ВСПОМОГАЛКА для конвертации File в data URL
+async function fileToDataUrl(file: File): Promise<string> {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return `data:${file.type};base64,${buffer.toString("base64")}`;
+}
+
 function inferExt(contentType?: string | null, url?: string): ImgExt {
   if (contentType) {
     const ct = contentType.toLowerCase();
@@ -63,13 +67,10 @@ function tsForName(d = new Date()) {
   return `${yyyy}-${mm}-${dd}__${hh}-${mi}-${ss}`;
 }
 
-
-// Возвращает следующий индекс для файлов с префиксом <label><N>
 async function getNextLabelIndex(dir: string, label: string): Promise<number> {
   try {
     const files = await fs.readdir(dir).catch(() => []);
     let max = 0;
-    // Ищем ровно в начале имени: label + число (например, "нано-банано12__...")
     const re = new RegExp(`^${label.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(\\d+)\\b`, "i");
     for (const name of files) {
       const m = name.match(re);
@@ -98,62 +99,60 @@ export async function POST(req: NextRequest) {
     const imageFile = formData.get("image") as File | null;
     const settingsStr = formData.get("settings") as string | null;
 
+    // <<< НАЧАЛО ИЗМЕНЕНИЙ: Получаем второй, опциональный файл
+    const referenceImageFile = formData.get("reference_image") as File | null;
+    // КОНЕЦ ИЗМЕНЕНИЙ
+
     if (!model || !prompt || !imageFile) {
       return NextResponse.json({ error: "Отсутствуют обязательные поля" }, { status: 400 });
     }
-
-    // Подготовка входного изображения как data URL
-    const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
-    const imageUrl = `data:${imageFile.type};base64,${imageBuffer.toString("base64")}`;
-
-    // Парсим настройки
+    
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
-
-    // Базовое тело запроса
     const body: FalRequestBody = { prompt };
     if (negativePrompt) body.negative_prompt = negativePrompt;
 
-    // Маршрут и особые поля под конкретную модель
     let endpointUrl: string;
     switch (model) {
       case "qwen":
-        endpointUrl = "https://fal.run/fal-ai/qwen-image-edit";
-        body.image_url = imageUrl;
+      case "flux": // <<< ОБЪЕДИНЯЕМ ЛОГИКУ ДЛЯ ОДИНОЧНЫХ МОДЕЛЕЙ
+        endpointUrl = model === 'qwen' 
+          ? "https://fal.run/fal-ai/qwen-image-edit" 
+          : "https://fal.run/fal-ai/flux-pro/kontext";
+        
+        body.image_url = await fileToDataUrl(imageFile);
+        
         if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (model === 'qwen' && settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (model === 'flux' && settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
-      case "flux":
-        endpointUrl = "https://fal.run/fal-ai/flux-pro/kontext";
-        body.image_url = imageUrl;
-        if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
-        if (settings.seed != null) body.seed = settings.seed;
-        break;
-
-      case "gemini": // Nano Banana edit
-        endpointUrl = "https://fal.run/fal-ai/nano-banana/edit";
-        body.image_urls = [imageUrl];
-        if (settings.seed != null) body.seed = settings.seed;
-        break;
-
-      case "seedream":
-        endpointUrl = "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
-        body.image_urls = [imageUrl];
-        body.sync_mode = true; // Важно для получения результата сразу
-
-        if (settings.seed != null) {
-          body.seed = settings.seed;
+      case "gemini": // Nano Banana
+      case "seedream": // <<< ОБЪЕДИНЯЕМ ЛОГИКУ ДЛЯ МУЛЬТИ-МОДЕЛЕЙ
+        endpointUrl = model === 'gemini' 
+          ? "https://fal.run/fal-ai/nano-banana/edit"
+          : "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
+          
+        const imageUrls = [await fileToDataUrl(imageFile)];
+        // Если есть референс, добавляем его вторым
+        if (referenceImageFile) {
+          imageUrls.push(await fileToDataUrl(referenceImageFile));
         }
-        if (settings.width != null && settings.height != null) {
-          body.image_size = { width: settings.width, height: settings.height };
+        body.image_urls = imageUrls;
+        
+        if (model === 'seedream') {
+          body.sync_mode = true;
+          if (settings.width != null && settings.height != null) {
+            body.image_size = { width: settings.width, height: settings.height };
+          }
         }
+        if (settings.seed != null) body.seed = settings.seed;
         break;
 
       default:
         return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
     }
+    
     // Вызов FAL
     const response = await fetch(endpointUrl, {
       method: "POST",
@@ -171,8 +170,6 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await response.json();
-
-    // Унификация ответа: ищем URL итоговой картинки
     const finalImageUrl: string | undefined =
       data.images?.[0]?.url || data.image?.url || data.output?.[0]?.url;
 
@@ -180,8 +177,7 @@ export async function POST(req: NextRequest) {
       console.error("API did not return an image URL. Response:", data);
       return NextResponse.json({ error: "API не вернуло изображение" }, { status: 500 });
     }
-
-    // Скачиваем итоговое изображение
+    
     const imgResp = await fetch(finalImageUrl);
     if (!imgResp.ok) {
       const errText = await imgResp.text().catch(() => "");
@@ -194,26 +190,20 @@ export async function POST(req: NextRequest) {
     const ct = imgResp.headers.get("content-type");
     const ext = inferExt(ct, finalImageUrl);
     const buf = Buffer.from(await imgResp.arrayBuffer());
-
-    // Префикс с меткой модели и авто-индексом: "<label><N>__..."
+    
     const label = MODEL_LABELS[model] ?? model;
     await fs.mkdir(SAVE_DIR, { recursive: true });
     const labelIndex = await getNextLabelIndex(SAVE_DIR, label);
-
-    // Хвост имени как у тебя раньше
+    
     const seedPart =
       typeof settings?.seed === "number" && !Number.isNaN(settings.seed)
         ? `seed-${settings.seed}`
         : "seed-auto";
-
-    // Итоговое имя: "<label><N>__<timestamp>__<model>__<seedPart>.<ext>"
+        
     const fileName = `${label}${labelIndex}__${tsForName()}__${model}__${seedPart}.${ext}`;
-
-    // Пишем файл
     const filePath = path.join(SAVE_DIR, fileName);
     await fs.writeFile(filePath, buf);
-
-    // Ответ
+    
     return NextResponse.json({
       imageUrl: finalImageUrl,
       savedPath: filePath,
@@ -221,7 +211,7 @@ export async function POST(req: NextRequest) {
       label,
       labelIndex,
     });
-  } catch (e: unknown) { // <<< ИСПРАВЛЕНО
+  } catch (e: unknown) {
     console.error("Server-side error:", e);
     const message = e instanceof Error ? e.message : "Неизвестная ошибка на сервере";
     return NextResponse.json(

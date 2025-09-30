@@ -25,8 +25,10 @@ ai-renderer-arena
 │   │   ├── ImageWorkspace.tsx
 │   │   ├── sidebar
 │   │   │   ├── ActionButtons.tsx
+│   │   │   ├── BackgroundReplacer.tsx
 │   │   │   ├── EnvironmentSettings.tsx
 │   │   │   ├── FileUpload.tsx
+│   │   │   ├── InstructionEditor.tsx
 │   │   │   ├── JsonViewer.tsx
 │   │   │   ├── MainPrompt.tsx
 │   │   │   ├── ModeSwitcher.tsx
@@ -479,11 +481,10 @@ export const dynamic = "force-dynamic";
 // ===== Типы и константы =====
 type ImgExt = "png" | "jpg" | "jpeg" | "webp";
 
-// Учитываем оба варианта изображения в теле запроса
 interface FalRequestBody {
   prompt: string;
   image_url?: string;
-  image_urls?: string[];
+  image_urls?: string[]; // <<< Теперь это массив для мульти-аплоада
   negative_prompt?: string;
   seed?: number;
   num_inference_steps?: number;
@@ -493,12 +494,10 @@ interface FalRequestBody {
   image_size?: { width: number, height: number };
 }
 
-// Папка автосейва (env > дефолт)
 const SAVE_DIR =
   process.env.IMAGES_SAVE_PATH ||
   "D:\\Work\\images from Image test for 3Dims (3 models)";
 
-// Метки для префикса файлов
 const MODEL_LABELS: Record<string, string> = {
   qwen: "qwen",
   flux: "flux",
@@ -507,6 +506,13 @@ const MODEL_LABELS: Record<string, string> = {
 };
 
 // ===== Вспомогалки =====
+
+// <<< НОВАЯ ВСПОМОГАЛКА для конвертации File в data URL
+async function fileToDataUrl(file: File): Promise<string> {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return `data:${file.type};base64,${buffer.toString("base64")}`;
+}
+
 function inferExt(contentType?: string | null, url?: string): ImgExt {
   if (contentType) {
     const ct = contentType.toLowerCase();
@@ -532,13 +538,10 @@ function tsForName(d = new Date()) {
   return `${yyyy}-${mm}-${dd}__${hh}-${mi}-${ss}`;
 }
 
-
-// Возвращает следующий индекс для файлов с префиксом <label><N>
 async function getNextLabelIndex(dir: string, label: string): Promise<number> {
   try {
     const files = await fs.readdir(dir).catch(() => []);
     let max = 0;
-    // Ищем ровно в начале имени: label + число (например, "нано-банано12__...")
     const re = new RegExp(`^${label.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(\\d+)\\b`, "i");
     for (const name of files) {
       const m = name.match(re);
@@ -567,62 +570,60 @@ export async function POST(req: NextRequest) {
     const imageFile = formData.get("image") as File | null;
     const settingsStr = formData.get("settings") as string | null;
 
+    // <<< НАЧАЛО ИЗМЕНЕНИЙ: Получаем второй, опциональный файл
+    const referenceImageFile = formData.get("reference_image") as File | null;
+    // КОНЕЦ ИЗМЕНЕНИЙ
+
     if (!model || !prompt || !imageFile) {
       return NextResponse.json({ error: "Отсутствуют обязательные поля" }, { status: 400 });
     }
-
-    // Подготовка входного изображения как data URL
-    const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
-    const imageUrl = `data:${imageFile.type};base64,${imageBuffer.toString("base64")}`;
-
-    // Парсим настройки
+    
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
-
-    // Базовое тело запроса
     const body: FalRequestBody = { prompt };
     if (negativePrompt) body.negative_prompt = negativePrompt;
 
-    // Маршрут и особые поля под конкретную модель
     let endpointUrl: string;
     switch (model) {
       case "qwen":
-        endpointUrl = "https://fal.run/fal-ai/qwen-image-edit";
-        body.image_url = imageUrl;
+      case "flux": // <<< ОБЪЕДИНЯЕМ ЛОГИКУ ДЛЯ ОДИНОЧНЫХ МОДЕЛЕЙ
+        endpointUrl = model === 'qwen' 
+          ? "https://fal.run/fal-ai/qwen-image-edit" 
+          : "https://fal.run/fal-ai/flux-pro/kontext";
+        
+        body.image_url = await fileToDataUrl(imageFile);
+        
         if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (model === 'qwen' && settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (model === 'flux' && settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
-      case "flux":
-        endpointUrl = "https://fal.run/fal-ai/flux-pro/kontext";
-        body.image_url = imageUrl;
-        if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
-        if (settings.seed != null) body.seed = settings.seed;
-        break;
-
-      case "gemini": // Nano Banana edit
-        endpointUrl = "https://fal.run/fal-ai/nano-banana/edit";
-        body.image_urls = [imageUrl];
-        if (settings.seed != null) body.seed = settings.seed;
-        break;
-
-      case "seedream":
-        endpointUrl = "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
-        body.image_urls = [imageUrl];
-        body.sync_mode = true; // Важно для получения результата сразу
-
-        if (settings.seed != null) {
-          body.seed = settings.seed;
+      case "gemini": // Nano Banana
+      case "seedream": // <<< ОБЪЕДИНЯЕМ ЛОГИКУ ДЛЯ МУЛЬТИ-МОДЕЛЕЙ
+        endpointUrl = model === 'gemini' 
+          ? "https://fal.run/fal-ai/nano-banana/edit"
+          : "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
+          
+        const imageUrls = [await fileToDataUrl(imageFile)];
+        // Если есть референс, добавляем его вторым
+        if (referenceImageFile) {
+          imageUrls.push(await fileToDataUrl(referenceImageFile));
         }
-        if (settings.width != null && settings.height != null) {
-          body.image_size = { width: settings.width, height: settings.height };
+        body.image_urls = imageUrls;
+        
+        if (model === 'seedream') {
+          body.sync_mode = true;
+          if (settings.width != null && settings.height != null) {
+            body.image_size = { width: settings.width, height: settings.height };
+          }
         }
+        if (settings.seed != null) body.seed = settings.seed;
         break;
 
       default:
         return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
     }
+    
     // Вызов FAL
     const response = await fetch(endpointUrl, {
       method: "POST",
@@ -640,8 +641,6 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await response.json();
-
-    // Унификация ответа: ищем URL итоговой картинки
     const finalImageUrl: string | undefined =
       data.images?.[0]?.url || data.image?.url || data.output?.[0]?.url;
 
@@ -649,8 +648,7 @@ export async function POST(req: NextRequest) {
       console.error("API did not return an image URL. Response:", data);
       return NextResponse.json({ error: "API не вернуло изображение" }, { status: 500 });
     }
-
-    // Скачиваем итоговое изображение
+    
     const imgResp = await fetch(finalImageUrl);
     if (!imgResp.ok) {
       const errText = await imgResp.text().catch(() => "");
@@ -663,26 +661,20 @@ export async function POST(req: NextRequest) {
     const ct = imgResp.headers.get("content-type");
     const ext = inferExt(ct, finalImageUrl);
     const buf = Buffer.from(await imgResp.arrayBuffer());
-
-    // Префикс с меткой модели и авто-индексом: "<label><N>__..."
+    
     const label = MODEL_LABELS[model] ?? model;
     await fs.mkdir(SAVE_DIR, { recursive: true });
     const labelIndex = await getNextLabelIndex(SAVE_DIR, label);
-
-    // Хвост имени как у тебя раньше
+    
     const seedPart =
       typeof settings?.seed === "number" && !Number.isNaN(settings.seed)
         ? `seed-${settings.seed}`
         : "seed-auto";
-
-    // Итоговое имя: "<label><N>__<timestamp>__<model>__<seedPart>.<ext>"
+        
     const fileName = `${label}${labelIndex}__${tsForName()}__${model}__${seedPart}.${ext}`;
-
-    // Пишем файл
     const filePath = path.join(SAVE_DIR, fileName);
     await fs.writeFile(filePath, buf);
-
-    // Ответ
+    
     return NextResponse.json({
       imageUrl: finalImageUrl,
       savedPath: filePath,
@@ -690,7 +682,7 @@ export async function POST(req: NextRequest) {
       label,
       labelIndex,
     });
-  } catch (e: unknown) { // <<< ИСПРАВЛЕНО
+  } catch (e: unknown) {
     console.error("Server-side error:", e);
     const message = e instanceof Error ? e.message : "Неизвестная ошибка на сервере";
     return NextResponse.json(
@@ -936,6 +928,163 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
 
 ---
 
+## Файл: `src/components/sidebar/BackgroundReplacer.tsx`
+
+```typescript
+// src/components/sidebar/BackgroundReplacer.tsx
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import Image from 'next/image';
+import { cx } from '@/lib/utils';
+import { ACCEPTED_FILE_TYPES } from '@/lib/types';
+import { Label } from '../ui/FormControls';
+
+type ModelForBg = 'gemini' | 'seedream';
+
+interface BackgroundReplacerProps {
+  onGenerate: (
+    referenceFile: File, 
+    targets: { window: boolean; door: boolean },
+    model: ModelForBg // <<< Теперь мы передаем и модель
+  ) => void;
+  isLoading: boolean;
+}
+
+export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({ onGenerate, isLoading }) => {
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [targets, setTargets] = useState({ window: true, door: false });
+  const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelForBg>('gemini'); // <<< Стейт для модели
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isReady = referenceFile && (targets.window || targets.door) && !isLoading;
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      return;
+    }
+    setError(null);
+    setReferenceFile(file);
+  };
+
+  const handleButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleTargetChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setTargets(prev => ({ ...prev, [name]: checked }));
+  };
+  
+  useEffect(() => {
+    if (!referenceFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(referenceFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [referenceFile]);
+
+  const handleSubmit = () => {
+    if (!isReady || !referenceFile) return;
+    onGenerate(referenceFile, targets, selectedModel); // <<< Передаем модель наружу
+  };
+
+  return (
+    <div className="space-y-4 pt-3">
+      {/* Блок загрузки */}
+      <div>
+        <Label title="Референс фона" />
+        <div className="flex items-center gap-3">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept={ACCEPTED_FILE_TYPES.join(',')}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={handleButtonClick}
+            className="flex-shrink-0 text-sm font-semibold py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+          >
+            + Загрузить фон
+          </button>
+          <div className="w-12 h-12 bg-gray-950 rounded-md flex-shrink-0 relative overflow-hidden border border-gray-700">
+            {previewUrl && <Image src={previewUrl} alt="Reference preview" layout="fill" objectFit="cover" />}
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+      </div>
+
+      {/* Блок выбора модели */}
+      <div>
+        <Label title="Модель" />
+        <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+          {(['gemini', 'seedream'] as ModelForBg[]).map(model => (
+            <button 
+              key={model}
+              onClick={() => setSelectedModel(model)}
+              className={cx(
+                "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                selectedModel === model 
+                  ? 'bg-cyan-600 text-white' 
+                  : 'text-gray-400 hover:bg-gray-800'
+              )}
+            >
+              {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Блок выбора целей */}
+      <div>
+        <Label title="Цели для замены" />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded-md hover:bg-gray-800 transition">
+            <input
+              type="checkbox" name="window" checked={targets.window} onChange={handleTargetChange}
+              className="accent-cyan-500 w-4 h-4"
+            />
+            Окна
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded-md hover:bg-gray-800 transition">
+            <input
+              type="checkbox" name="door" checked={targets.door} onChange={handleTargetChange}
+              className="accent-cyan-500 w-4 h-4"
+            />
+            Дверь
+          </label>
+        </div>
+      </div>
+
+      {/* Кнопка действия */}
+      <button
+        onClick={handleSubmit}
+        disabled={!isReady}
+        className={cx(
+          "w-full text-sm font-semibold py-2.5 rounded-lg transition",
+          isReady
+            ? "bg-cyan-600 hover:bg-cyan-500 text-white"
+            : "bg-gray-700 text-gray-400 cursor-not-allowed"
+        )}
+      >
+        {isLoading ? "Обработка..." : "Заменить фон"}
+      </button>
+    </div>
+  );
+};
+```
+
+---
+
 ## Файл: `src/components/sidebar/EnvironmentSettings.tsx`
 
 ```typescript
@@ -1106,6 +1255,110 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           onChange={onFileChange}
         />
       </label>
+    </div>
+  );
+};
+```
+
+---
+
+## Файл: `src/components/sidebar/InstructionEditor.tsx`
+
+```typescript
+// src/components/sidebar/InstructionEditor.tsx
+import React from 'react';
+
+import { MainPrompt } from './MainPrompt';
+import { ModelSelector } from './ModelSelector';
+import { ModelSettings } from './ModelSettings';
+import { ActionButtons } from './ActionButtons';
+import type { SidebarProps } from '../workspace/Sidebar.types';
+
+// Мы берем часть пропсов из общего типа, чтобы не дублировать
+type InstructionEditorProps = Pick<
+  SidebarProps,
+  | 'activeTab'
+  | 'prompt'
+  | 'setPrompt'
+  | 'promptTokenCount'
+  | 'showNeg'
+  | 'setShowNeg'
+  | 'negativePrompt'
+  | 'setNegativePrompt'
+  | 'negativeTokenCount'
+  | 'selectedModel'
+  | 'setSelectedModel'
+  | 'seedLock'
+  | 'setSeedLock'
+  | 'randomizeSeed'
+  | 'qwenSettings'
+  | 'handleQwenChange'
+  | 'fluxSettings'
+  | 'handleFluxChange'
+  | 'seedreamSettings'
+  | 'handleSeedreamChange'
+  | 'seedreamTargetSize'
+  | 'setSeedreamTargetSize'
+  | 'seedreamSizeWarning'
+  | 'isReadyToGenerate'
+  | 'isLoading'
+  | 'onGenerate'
+  | 'onCancel'
+  | 'onClear'
+  | 'error'
+  | 'sourceFile'
+>;
+
+export const InstructionEditor: React.FC<InstructionEditorProps> = (props) => {
+  return (
+    <div className="space-y-5 pt-3">
+      {/* Здесь мы просто переиспользуем те же самые компоненты,
+        которые раньше были разбросаны по сайдбару.
+        Теперь они живут вместе, как хорошая семья.
+      */}
+      <MainPrompt
+        activeTab={props.activeTab}
+        prompt={props.prompt}
+        setPrompt={props.setPrompt}
+        promptTokenCount={props.promptTokenCount}
+        showNeg={props.showNeg}
+        setShowNeg={props.setShowNeg}
+        negativePrompt={props.negativePrompt}
+        setNegativePrompt={props.setNegativePrompt}
+        negativeTokenCount={props.negativeTokenCount}
+      />
+
+      <ModelSelector
+        selectedModel={props.selectedModel}
+        setSelectedModel={props.setSelectedModel}
+      />
+
+      <ModelSettings
+        selectedModel={props.selectedModel}
+        seedLock={props.seedLock}
+        setSeedLock={props.setSeedLock}
+        randomizeSeed={props.randomizeSeed}
+        qwenSettings={props.qwenSettings}
+        handleQwenChange={props.handleQwenChange}
+        fluxSettings={props.fluxSettings}
+        handleFluxChange={props.handleFluxChange}
+        seedreamSettings={props.seedreamSettings}
+        handleSeedreamChange={props.handleSeedreamChange}
+        seedreamTargetSize={props.seedreamTargetSize}
+        setSeedreamTargetSize={props.setSeedreamTargetSize}
+        seedreamSizeWarning={props.seedreamSizeWarning}
+      />
+
+      <ActionButtons
+        isReadyToGenerate={props.isReadyToGenerate}
+        isLoading={props.isLoading}
+        onGenerate={props.onGenerate}
+        onCancel={props.onCancel}
+        onClear={props.onClear}
+        error={props.error}
+        activeTab={props.activeTab}
+        sourceFile={props.sourceFile}
+      />
     </div>
   );
 };
@@ -1704,34 +1957,81 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
 
 ```typescript
 // src/components/sidebar/ProTools.tsx
-import React from 'react';
-import { GenerationNode } from '@/lib/types';
+import React, { useState } from 'react';
+import { cx } from '@/lib/utils';
+import type { SidebarProps } from '../workspace/Sidebar.types';
+import { InstructionEditor } from './InstructionEditor';
+import { BackgroundReplacer } from './BackgroundReplacer'; // <<< 1. Импортируем новый инструмент
 
-interface ProToolsProps {
-  activeHistory: GenerationNode[];
-  handleChangeSource: () => void;
-}
+// ProTools теперь должен знать о новой функции, которую он будет передавать
+type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
+  onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }) => void;
+};
 
-export const ProTools: React.FC<ProToolsProps> = ({ activeHistory, handleChangeSource }) => {
+export const ProTools: React.FC<ProToolsProps> = (props) => {
+  const [isEditorOpen, setIsEditorOpen] = useState(true);
+  // <<< 2. Добавляем стейт для нового "баяна"
+  const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
+
   return (
     <div className="space-y-3">
-      {activeHistory.length > 0 && (
+      {props.activeHistory.length > 0 && (
         <div className="mb-2">
           <button
-            onClick={handleChangeSource}
+            onClick={props.handleChangeSource}
             className="w-full text-center text-xs text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 bg-yellow-900/20 rounded-md py-2 transition"
           >
             ↩︎ Сменить исходник
           </button>
         </div>
       )}
+      
       <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
-      {/* ЗАГЛУШКИ */}
-      <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Текстуры</div>
-      <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Стиля</div>
-      <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Фона</div>
-      <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Внедрение Объекта</div>
-      <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Редактор по Стрелкам</div>
+
+      <div className="space-y-2">
+        {/* Блок 1: Правка по инструкции (без изменений) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsEditorOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isEditorOpen ? '▼' : '►'} Правка по инструкции
+          </button>
+          {isEditorOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <InstructionEditor {...props} />
+            </div>
+          )}
+        </div>
+
+        {/* <<< 3. НАЧАЛО: Наш новый блок "Замена Фона" */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsBgReplacerOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isBgReplacerOpen ? '▼' : '►'} Замена Фона
+          </button>
+          {isBgReplacerOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <BackgroundReplacer
+                onGenerate={props.onGenerateBackgroundReplacement}
+                isLoading={props.isLoading}
+              />
+            </div>
+          )}
+        </div>
+        {/* <<< КОНЕЦ НОВОГО БЛОКА */}
+
+
+        {/* Остальные инструменты пока остаются заглушками */}
+        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Текстуры</div>
+        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Стиля</div>
+        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
+        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>
+      </div>
     </div>
   );
 };
@@ -1816,62 +2116,98 @@ import Image from "next/image";
 const BaseResultsTray: React.FC<{
   nodes: GenerationNode[];
   selectedUrl: string | null;
-  // onSelect принимает весь узел
   onSelect: (node: GenerationNode) => void;
   onPromote: (id: string) => void;
   onDelete: (id: string) => void;
-}> = ({ nodes, selectedUrl, onSelect, onPromote, onDelete }) => {
+  isWorkspace?: (id: string) => boolean;
+  onDeleteWorkspace?: (id: string) => void;
+}> = ({ nodes, selectedUrl, onSelect, onPromote, onDelete, isWorkspace, onDeleteWorkspace }) => {
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
         Лоток базовых результатов (кликни для сравнения, затем отправь в PRO)
       </div>
       <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
-        {nodes.map((node) => (
-          <div key={node.id} className="relative group">
-            <button
-              onClick={() => onSelect(node)}
-              title="Выбрать для сравнения"
-              className={cx(
-                "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
-                node.imageUrl === selectedUrl
-                  ? "ring-2 ring-cyan-500"
-                  : "hover:ring-2 ring-gray-600"
+        {nodes.map((node) => {
+          const isProWorkspace = isWorkspace?.(node.id) ?? false;
+          return (
+            <div key={node.id} className="relative group">
+              <button
+                onClick={() => onSelect(node)}
+                title="Выбрать для сравнения"
+                className={cx(
+                  "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
+                  node.imageUrl === selectedUrl
+                    ? "ring-2 ring-cyan-500"
+                    : "hover:ring-2 ring-gray-600",
+                  isProWorkspace && "border-2 border-cyan-700/50" // Подсвечиваем воркспейсы
+                )}
+              >
+                <Image
+                  src={node.imageUrl}
+                  alt={`Base result ${node.id}`}
+                  fill
+                  sizes="120px"
+                  className="object-cover"
+                />
+                {isProWorkspace && (
+                   <div className="absolute top-0 left-0 bg-cyan-800/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">PRO</div>
+                )}
+              </button>
+
+              {/* БЫЛО:
+              <button
+                onClick={() => onDelete(node.id)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Удалить"
+                aria-label="Удалить"
+              >
+                ✕
+              </button>
+              <button
+                onClick={() => onPromote(node.id)}
+                className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Отправить в PRO"
+              >
+                В PRO →
+              </button>
+              */}
+              
+              {/* СТАЛО: Умные кнопки */}
+              {!isProWorkspace ? (
+                <>
+                  <button
+                    onClick={() => onDelete(node.id)}
+                    className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Удалить базовый результат"
+                  >
+                    ✕
+                  </button>
+                  <button
+                    onClick={() => onPromote(node.id)}
+                    className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Отправить в PRO"
+                  >
+                    В PRO →
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => onDeleteWorkspace?.(node.id)}
+                  className="absolute bottom-1 right-1 text-[10px] font-bold bg-red-700/90 hover:bg-red-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Удалить весь воркспейс"
+                >
+                  Удалить PRO
+                </button>
               )}
-            >
-              <Image
-                src={node.imageUrl}
-                alt={`Base result ${node.id}`}
-                fill
-                sizes="120px"
-                className="object-cover"
-              />
-            </button>
-
-            {/* Кнопка удаления */}
-            <button
-              onClick={() => onDelete(node.id)}
-              className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Удалить"
-              aria-label="Удалить"
-            >
-              ✕
-            </button>
-
-            {/* Отправить в PRO */}
-            <button
-              onClick={() => onPromote(node.id)}
-              className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Отправить в PRO"
-            >
-              В PRO →
-            </button>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 };
+
 
 // --- Внутренний компонент №2: Сравнение "до/после" ---
 const CompareView: React.FC<{
@@ -1994,71 +2330,47 @@ const GenerationTree: React.FC<{
 
 // --- ОСНОВНОЙ КОМПОНЕНТ CANVAS ---
 interface CanvasProps {
-  // Общие
   isLoading: boolean;
   sourceFile: File | null;
-
-  // Патч: добавили fallback-URL исходника
   sourceUrl: string | null;
-
-  // Управление вкладками
   activeTab: "BASE" | "PRO";
-
-  // Для BASE и "Прихожей"
   baseResults: GenerationNode[];
   selectedBaseResultUrl: string | null;
-
-  // Источник для сравнения (из истории) + выбор результата
   compareSourceUrl: string | null;
   selectBaseResultForCompare: (node: GenerationNode) => void;
-
   comparePos: number;
   setComparePos: (pos: number) => void;
-
-  // Для PRO-"Мастерской"
   activeHistory: GenerationNode[];
   activeNodeId: string | null;
   setActiveNodeId: (id: string) => void;
   activeNode: GenerationNode | null;
-
-  // Общие
   handlePromoteToPro: (id: string) => void;
-
-  // Патч: удаление базового результата
   deleteBaseResult: (nodeId: string) => void;
+  // СТАЛО: Пропсы для работы с воркспейсами
+  workspaces: { [rootNodeId: string]: GenerationNode[] };
+  deleteWorkspace: (workspaceId: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   isLoading,
   sourceFile,
-
-  // Патч: новый проп для фолбэка
   sourceUrl,
-
-  // Tabs
   activeTab,
-
-  // BASE
   baseResults,
   selectedBaseResultUrl,
-
   compareSourceUrl,
   selectBaseResultForCompare,
-
   comparePos,
   setComparePos,
-
-  // PRO
   activeHistory,
   activeNodeId,
   setActiveNodeId,
   activeNode,
-
-  // Общие
   handlePromoteToPro,
-
-  // Патч
   deleteBaseResult,
+  // СТАЛО: Получаем новые пропсы
+  workspaces,
+  deleteWorkspace,
 }) => {
   const handleDownloadSource = () => {
     if (!sourceFile) return;
@@ -2083,7 +2395,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   return (
     <section className="space-y-4">
-      {/* Верхняя панель */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-400">
           {isLoading ? "Обработка…" : "Готово"}
@@ -2106,7 +2417,6 @@ export const Canvas: React.FC<CanvasProps> = ({
         </div>
       </div>
 
-      {/* Просмотр */}
       <div className="bg-gray-850 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
           {activeTab === "BASE"
@@ -2117,7 +2427,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
         {activeTab === "BASE" && (
           <CompareView
-            // Патч: если нет "воспоминания" из истории — берём текущий скетч
             sourceUrl={compareSourceUrl || sourceUrl}
             resultUrl={selectedBaseResultUrl}
             comparePos={comparePos}
@@ -2146,21 +2455,20 @@ export const Canvas: React.FC<CanvasProps> = ({
         )}
       </div>
 
-      {/* Таб BASE: всегда показываем лоток */}
       {activeTab === "BASE" && baseResults.length > 0 && (
         <BaseResultsTray
           nodes={baseResults}
-          selectedUrl={selectedBaseResultUrl}
-          onSelect={selectBaseResultForCompare}
+          selectedUrl={null}
+          onSelect={() => {}}
           onPromote={handlePromoteToPro}
           onDelete={deleteBaseResult}
+          isWorkspace={(id) => !!workspaces[id]}
+          onDeleteWorkspace={deleteWorkspace}
         />
       )}
 
-      {/* Таб PRO: показываем либо "Прихожую", либо "Мастерскую" */}
       {activeTab === "PRO" && (
         <>
-          {/* "Прихожая": нет истории, но есть базовые результаты */}
           {activeHistory.length === 0 && baseResults.length > 0 && (
             <div className="bg-gray-850 border border-gray-800 rounded-xl">
               <div className="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-yellow-300">
@@ -2169,14 +2477,16 @@ export const Canvas: React.FC<CanvasProps> = ({
               <BaseResultsTray
                 nodes={baseResults}
                 selectedUrl={null}
-                onSelect={() => {}}
+                onSelect={() => {}} // В "прихожей" выбор не нужен
                 onPromote={handlePromoteToPro}
                 onDelete={deleteBaseResult}
+                // СТАЛО: Передаем логику для работы с воркспейсами
+                isWorkspace={(id) => !!workspaces[id]}
+                onDeleteWorkspace={deleteWorkspace}
               />
             </div>
           )}
 
-          {/* "Мастерская": когда есть история */}
           {activeHistory.length > 0 && (
             <GenerationTree
               nodes={activeHistory}
@@ -2193,7 +2503,6 @@ export const Canvas: React.FC<CanvasProps> = ({
     </section>
   );
 };
-
 ```
 
 ---
@@ -2204,7 +2513,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 // src/components/workspace/Sidebar.tsx
 import React from "react";
 import type { SidebarProps } from "./Sidebar.types";
-// <<< ИЗМЕНЕНО: Правильный путь, на один уровень выше
 import { ModeSwitcher } from '../sidebar/ModeSwitcher';
 import { FileUpload } from '../sidebar/FileUpload';
 import { JsonViewer } from '../sidebar/JsonViewer';
@@ -2225,100 +2533,100 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
         handleTabChange={props.handleTabChange}
       />
 
-      {/* Контент для вкладки BASE */}
+      {/* --- РАЗДЕЛЕНИЕ ЛОГИКИ --- */}
+
+      {/* Контент для вкладки BASE: Старый добрый набор компонентов */}
       {props.activeTab === 'BASE' && (
-        <div className="space-y-5">
-          <FileUpload
-            imageInfo={props.imageInfo}
-            sourceFile={props.sourceFile}
-            dropRef={props.dropRef}
-            onDrop={props.onDrop}
-            onFileChange={props.onFileChange}
+        <>
+          <div className="space-y-5">
+            <FileUpload
+              imageInfo={props.imageInfo}
+              sourceFile={props.sourceFile}
+              dropRef={props.dropRef}
+              onDrop={props.onDrop}
+              onFileChange={props.onFileChange}
+            />
+            <JsonViewer
+              isJsonViewerOpen={props.isJsonViewerOpen}
+              setIsJsonViewerOpen={props.setIsJsonViewerOpen}
+              onJsonFileChange={props.onJsonFileChange}
+              jsonError={props.jsonError}
+              jsonContent={props.jsonContent}
+            />
+            <EnvironmentSettings
+              windowView={props.windowView}
+              setWindowView={props.setWindowView}
+              doorView={props.doorView}
+              setDoorView={props.setDoorView}
+            />
+            <PromptEngineer
+              showRefiner={props.showRefiner}
+              setShowRefiner={props.setShowRefiner}
+              rawPrompt={props.rawPrompt}
+              setRawPrompt={props.setRawPrompt}
+              llmSettingsByModel={props.llmSettingsByModel}
+              selectedModel={props.selectedModel}
+              handleLlmSettingsChange={props.handleLlmSettingsChange}
+              sendImageToLlm={props.sendImageToLlm}
+              setSendImageToLlm={props.setSendImageToLlm}
+              sourceFile={props.sourceFile}
+              onRefinePrompt={props.onRefinePrompt}
+              isRefining={props.isRefining}
+              refineError={props.refineError}
+            />
+          </div>
+
+          {/* Общие блоки теперь являются частью BASE, а не глобальными */}
+          <MainPrompt
+            activeTab={props.activeTab}
+            prompt={props.prompt}
+            setPrompt={props.setPrompt}
+            promptTokenCount={props.promptTokenCount}
+            showNeg={props.showNeg}
+            setShowNeg={props.setShowNeg}
+            negativePrompt={props.negativePrompt}
+            setNegativePrompt={props.setNegativePrompt}
+            negativeTokenCount={props.negativeTokenCount}
           />
-          <JsonViewer
-            isJsonViewerOpen={props.isJsonViewerOpen}
-            setIsJsonViewerOpen={props.setIsJsonViewerOpen}
-            onJsonFileChange={props.onJsonFileChange}
-            jsonError={props.jsonError}
-            jsonContent={props.jsonContent}
-          />
-          <EnvironmentSettings
-            windowView={props.windowView}
-            setWindowView={props.setWindowView}
-            doorView={props.doorView}
-            setDoorView={props.setDoorView}
-          />
-          <PromptEngineer
-            showRefiner={props.showRefiner}
-            setShowRefiner={props.setShowRefiner}
-            rawPrompt={props.rawPrompt}
-            setRawPrompt={props.setRawPrompt}
-            llmSettingsByModel={props.llmSettingsByModel}
+
+          <ModelSelector
             selectedModel={props.selectedModel}
-            handleLlmSettingsChange={props.handleLlmSettingsChange}
-            sendImageToLlm={props.sendImageToLlm}
-            setSendImageToLlm={props.setSendImageToLlm}
-            sourceFile={props.sourceFile}
-            onRefinePrompt={props.onRefinePrompt}
-            isRefining={props.isRefining}
-            refineError={props.refineError}
+            setSelectedModel={props.setSelectedModel}
           />
-        </div>
+
+          <ModelSettings
+            selectedModel={props.selectedModel}
+            seedLock={props.seedLock}
+            setSeedLock={props.setSeedLock}
+            randomizeSeed={props.randomizeSeed}
+            qwenSettings={props.qwenSettings}
+            handleQwenChange={props.handleQwenChange}
+            fluxSettings={props.fluxSettings}
+            handleFluxChange={props.handleFluxChange}
+            seedreamSettings={props.seedreamSettings}
+            handleSeedreamChange={props.handleSeedreamChange}
+            seedreamTargetSize={props.seedreamTargetSize}
+            setSeedreamTargetSize={props.setSeedreamTargetSize}
+            seedreamSizeWarning={props.seedreamSizeWarning}
+          />
+
+          <ActionButtons
+            isReadyToGenerate={props.isReadyToGenerate}
+            isLoading={props.isLoading}
+            onGenerate={props.onGenerate}
+            onCancel={props.onCancel}
+            onClear={props.onClear}
+            error={props.error}
+            activeTab={props.activeTab}
+            sourceFile={props.sourceFile}
+          />
+        </>
       )}
 
-      {/* Контент для вкладки PRO */}
+      {/* Контент для вкладки PRO: Только наш новый ProTools */}
       {props.activeTab === 'PRO' && (
-        <ProTools
-          activeHistory={props.activeHistory}
-          handleChangeSource={props.handleChangeSource}
-        />
+        <ProTools {...props} />
       )}
-
-      {/* Общие блоки для обоих режимов */}
-      <MainPrompt
-        activeTab={props.activeTab}
-        prompt={props.prompt}
-        setPrompt={props.setPrompt}
-        promptTokenCount={props.promptTokenCount}
-        showNeg={props.showNeg}
-        setShowNeg={props.setShowNeg}
-        negativePrompt={props.negativePrompt}
-        setNegativePrompt={props.setNegativePrompt}
-        negativeTokenCount={props.negativeTokenCount}
-      />
-
-      <ModelSelector
-        selectedModel={props.selectedModel}
-        setSelectedModel={props.setSelectedModel}
-      />
-
-      <ModelSettings
-        selectedModel={props.selectedModel}
-        seedLock={props.seedLock}
-        setSeedLock={props.setSeedLock}
-        randomizeSeed={props.randomizeSeed}
-        qwenSettings={props.qwenSettings}
-        handleQwenChange={props.handleQwenChange}
-        fluxSettings={props.fluxSettings}
-        handleFluxChange={props.handleFluxChange}
-        seedreamSettings={props.seedreamSettings}
-        handleSeedreamChange={props.handleSeedreamChange}
-        seedreamTargetSize={props.seedreamTargetSize}
-        setSeedreamTargetSize={props.setSeedreamTargetSize}
-        seedreamSizeWarning={props.seedreamSizeWarning}
-      />
-
-      <ActionButtons
-        isReadyToGenerate={props.isReadyToGenerate}
-        isLoading={props.isLoading}
-        onGenerate={props.onGenerate}
-        onCancel={props.onCancel}
-        onClear={props.onClear}
-        error={props.error}
-        activeTab={props.activeTab}
-        sourceFile={props.sourceFile}
-      />
-
     </aside>
   );
 };
@@ -2415,6 +2723,7 @@ import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE_MB } from "@/lib/types";
 export function useFileHandler() {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sourceDataUrl, setSourceDataUrl] = useState<string | null>(null); // <<< ВОТ ОНА, РОДИМАЯ
   const [imageInfo, setImageInfo] = useState<{ w: number; h: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -2437,6 +2746,12 @@ export function useFileHandler() {
 
     const url = URL.createObjectURL(file);
     setSourceUrl(url);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSourceDataUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
 
     try {
       const dims = await readImageDims(file);
@@ -2462,7 +2777,6 @@ export function useFileHandler() {
     }
   };
 
-  // <<< ИЗМЕНЕНО: Тип 'e' теперь 'globalThis.ClipboardEvent', чтобы соответствовать window.addEventListener
   const onPaste = useCallback(async (e: globalThis.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -2483,11 +2797,11 @@ export function useFileHandler() {
       URL.revokeObjectURL(sourceUrl);
     }
     setSourceUrl(null);
+    setSourceDataUrl(null);
     setImageInfo(null);
     setFileError(null);
   };
 
-  // <<< ИЗМЕНЕНО: Упростили, передавая onPaste напрямую
   useEffect(() => {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -2504,6 +2818,7 @@ export function useFileHandler() {
   return {
     sourceFile,
     sourceUrl,
+    sourceDataUrl,
     imageInfo,
     fileError,
     dropRef,
@@ -2548,6 +2863,7 @@ export function useImageWorkspace() {
   const {
     sourceFile,
     sourceUrl,
+    sourceDataUrl,
     imageInfo,
     fileError,
     dropRef,
@@ -2609,13 +2925,11 @@ export function useImageWorkspace() {
     setIsLoading(false);
   }, []);
 
-  // <<< ИЗМЕНЕНИЕ №1: ХИРУРГИЧЕСКИЙ СБРОС (не удаляем baseResults)
   useEffect(() => {
     if (sourceFile) {
       setError(null);
-      // Сбрасываем выделение в лотке, чтобы не было путаницы
       setSelectedBaseResultUrl(null);
-      // Принудительно переключаем на вкладку BASE, так как загружен новый скетч
+      setCompareSourceUrl(null);
       setActiveTab("BASE");
     }
   }, [sourceFile]);
@@ -2629,6 +2943,8 @@ export function useImageWorkspace() {
     setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
     setWorkspaces(p.workspaces ?? {});
     setActiveWorkspaceId(p.activeWorkspaceId ?? null);
+    // СТАЛО: Загружаем ID активного узла
+    setActiveNodeId(p.activeNodeId ?? null);
     setPrompt(p.prompt ?? "");
     setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
     if (p.selectedModel) settingsManager.setSelectedModel(p.selectedModel);
@@ -2642,7 +2958,7 @@ export function useImageWorkspace() {
     if (typeof p.seedLock === "boolean") settingsManager.setSeedLock(p.seedLock);
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // persist save
   useEffect(() => {
@@ -2659,13 +2975,15 @@ export function useImageWorkspace() {
       selectedBaseResultUrl,
       workspaces,
       activeWorkspaceId,
+      // СТАЛО: Сохраняем ID активного узла
+      activeNodeId,
       selectedModel: settingsManager.selectedModel,
       qwenSettings: settingsManager.qwenSettings,
       fluxSettings: settingsManager.fluxSettings,
       seedreamSettings: settingsManager.seedreamSettings,
       seedLock: settingsManager.seedLock,
       seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: "compare", // deprecated
+      tab: "compare", 
     });
   }, [
     prompt,
@@ -2680,25 +2998,30 @@ export function useImageWorkspace() {
     selectedBaseResultUrl,
     workspaces,
     activeWorkspaceId,
-    settingsManager,
-  ]);
+    activeNodeId,
+    // Раскладываем settingsManager на конкретные поля, чтобы исключить лишние срабатывания
+    settingsManager.selectedModel,
+    settingsManager.qwenSettings,
+    settingsManager.fluxSettings,
+    settingsManager.seedreamSettings,
+    settingsManager.seedLock,
+    settingsManager.seedreamTargetSize,
+  ]
+  );
 
   useEffect(() => {
     setPromptTokenCount(encode(prompt || "").length);
     setNegativeTokenCount(encode(negativePrompt || "").length);
   }, [prompt, negativePrompt]);
 
-  // <<< ИЗМЕНЕНИЕ: ВОТ ОН, НАШ "САНИТАР СОСТОЯНИЯ"
   useEffect(() => {
-    // 1. Если выбранный для сравнения базовый результат был удален, сбрасываем выбор.
     if (selectedBaseResultUrl && !baseResults.some((node) => node.imageUrl === selectedBaseResultUrl)) {
       setSelectedBaseResultUrl(null);
     }
-    // 2. Если активный воркспейс был удален, сбрасываем PRO-режим.
     if (activeWorkspaceId && !workspaces[activeWorkspaceId]) {
       setActiveWorkspaceId(null);
       setActiveNodeId(null);
-      setActiveTab("BASE"); // Возвращаем пользователя в безопасное место
+      setActiveTab("BASE");
     }
   }, [baseResults, workspaces, selectedBaseResultUrl, activeWorkspaceId]);
 
@@ -2708,6 +3031,76 @@ export function useImageWorkspace() {
       onGenerate();
     }
     if (e.key === "Escape" && isLoading) onCancel();
+  };
+
+  const onGenerateBackgroundReplacement = async (
+    referenceFile: File,
+    targets: { window: boolean; door: boolean },
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    let targetAreas = [];
+    if (targets.window) targetAreas.push("the windows");
+    if (targets.door) targetAreas.push("the glass door");
+    const promptTarget = targetAreas.join(" and ");
+
+    if (!promptTarget) return fail("Не выбраны цели для замены фона.");
+
+    const prompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
+
+    let sourceImageFile: File;
+    try {
+      const response = await fetch(activeNode.imageUrl);
+      const blob = await response.blob();
+      sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
+    } catch {
+      return fail("Не удалось загрузить изображение из активного узла.");
+    }
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", sourceImageFile);
+    formData.append("reference_image", referenceFile);
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -2807,14 +3200,17 @@ export function useImageWorkspace() {
     try {
       const data = await api.generateImage(formData, abortControllerRef.current!.signal);
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(), parentId, imageUrl: data.imageUrl,
-        // <<< ИЗМЕНЕНО №2: Записываем память об исходнике
-        sourceImageUrl: activeTab === 'BASE' ? sourceUrl : activeNode?.sourceImageUrl ?? null,
-        prompt, negativePrompt, model: settingsManager.selectedModel, settings,
+        id: crypto.randomUUID(),
+        parentId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeTab === 'BASE' ? sourceDataUrl : activeNode?.sourceImageUrl ?? null,
+        prompt,
+        negativePrompt,
+        model: settingsManager.selectedModel,
+        settings,
       };
       if (activeTab === 'BASE') {
         setBaseResults(prev => [...prev, newNode]);
-        // При генерации сразу выбираем новый результат для просмотра
         setSelectedBaseResultUrl(newNode.imageUrl);
         setCompareSourceUrl(newNode.sourceImageUrl);
       } else {
@@ -2908,19 +3304,19 @@ export function useImageWorkspace() {
     const nodeToPromote = baseResults.find((node) => node.id === nodeId);
     if (!nodeToPromote) return fail("Не удалось найти узел.");
     if (!workspaces[nodeToPromote.id]) {
-      setWorkspaces((prev) => ({ ...prev, [nodeToPromote.id]: [nodeToPromote] }));
+      const clonedRootNode = { ...nodeToPromote };
+      setWorkspaces((prev) => ({ ...prev, [nodeToPromote.id]: [clonedRootNode] }));
     }
     setActiveWorkspaceId(nodeToPromote.id);
     setActiveNodeId(nodeToPromote.id);
     setActiveTab("PRO");
   };
 
-  // <<< ИЗМЕНЕНИЕ №2: ДОБАВЛЯЕМ ЛОГИКУ УДАЛЕНИЯ
   const deleteBaseResult = (nodeId: string) => {
     setBaseResults((prev) => prev.filter((node) => node.id !== nodeId));
-    // TODO: при необходимости удалять связанные воркспейсы/ссылки
   };
 
+  // СТАЛО: Новая функция-киллер
   const deleteWorkspace = (workspaceId: string) => {
     setWorkspaces((prev) => {
       const newWorkspaces = { ...prev };
@@ -2930,10 +3326,10 @@ export function useImageWorkspace() {
     if (activeWorkspaceId === workspaceId) {
       setActiveWorkspaceId(null);
       setActiveNodeId(null);
+      setActiveTab('BASE');
     }
   };
 
-  // <<< ИЗМЕНЕНИЕ №3: ПРОКИДЫВАЕМ НОВЫЕ ФУНКЦИИ НАРУЖУ
   return {
     ...settingsManager,
     sourceFile,
@@ -2955,6 +3351,8 @@ export function useImageWorkspace() {
     activeNode,
     activeNodeId,
     setActiveNodeId,
+    // СТАЛО: Отдаем сам объект воркспейсов наружу
+    workspaces,
     comparePos,
     setComparePos,
     isLoading,
@@ -2989,6 +3387,7 @@ export function useImageWorkspace() {
     jsonError,
     onJsonFileChange,
     onGenerate,
+    onGenerateBackgroundReplacement,
     onClear,
     onCancel,
     onKeyDown,
@@ -2996,7 +3395,6 @@ export function useImageWorkspace() {
     deleteWorkspace,
   };
 }
-
 ```
 
 ---
@@ -3062,9 +3460,12 @@ export function useSettingsManager(imageInfo: { w: number; h: number } | null) {
     if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
   }, [seedLock, selectedModel]);
   
-  const getCurrentSettings = useCallback(() => {
-    switch (selectedModel) {
+  const getCurrentSettings = useCallback((overrideModel?: Model) => {
+    const modelToUse = overrideModel || selectedModel; // Используем переданную модель или глобальную
+    switch (modelToUse) {
       case "qwen": return qwenSettings;
+      case "flux": return fluxSettings;
+      case "gemini": return { seed: qwenSettings.seed }; // Для Nano Banana нужен только seed
       case "seedream": {
         const origW = imageInfo?.w ?? 1024;
         const origH = imageInfo?.h ?? 1024;
@@ -3307,7 +3708,7 @@ export type PersistState = {
   seedLock: boolean;
   tab: "source" | "result" | "compare"; // <<< Это старое поле, его можно будет потом убрать, но пока оставим
   comparePos: number;
-  seedreamTargetSize: 1024 | 1280 | 'original'; // <<< ВОТ ЧЕГО НЕ ХВАТАЛО
+  seedreamTargetSize: 1024 | 1280 | 'original'; 
 
   // Новая структура
   activeTab: 'BASE' | 'PRO';
@@ -3315,6 +3716,7 @@ export type PersistState = {
   selectedBaseResultUrl: string | null;
   workspaces: { [rootNodeId: string]: GenerationNode[] };
   activeWorkspaceId: string | null;
+  activeNodeId: string | null;
 };
 ```
 
