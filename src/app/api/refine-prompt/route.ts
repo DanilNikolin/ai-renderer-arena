@@ -1,3 +1,4 @@
+// src/app/api/refine-prompt/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -77,7 +78,6 @@ export async function POST(req: Request) {
     // ---- вызов Chat Completions под GPT-5 ----
     const resp = await client.chat.completions.create({
       model,
-      // @ts-expect-error — SDK принимает мультимодальные части в messages
       messages,
       max_completion_tokens,
       ...(temperature !== undefined ? { temperature } : {}),
@@ -102,10 +102,11 @@ export async function POST(req: Request) {
       { error: `OpenAI не вернула текст. Причина завершения: '${finishReason}'.` },
       { status: 502 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) { // <<< ИСПРАВЛЕНО
     console.error("refine-prompt error:", err);
+    const message = err instanceof Error ? err.message : "Неизвестная ошибка";
     return NextResponse.json(
-      { error: err?.message || "Неизвестная ошибка." },
+      { error: message },
       { status: 500 }
     );
   }

@@ -1,3 +1,4 @@
+// src/app/api/generate/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -19,8 +20,8 @@ interface FalRequestBody {
   num_inference_steps?: number;
   guidance_scale?: number;
   safety_tolerance?: number;
-  sync_mode?: boolean; // <--- ДОБАВИЛИ
-  image_size?: { width: number, height: number }; // <--- ДОБАВИЛИ
+  sync_mode?: boolean;
+  image_size?: { width: number, height: number };
 }
 
 // Папка автосейва (env > дефолт)
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest) {
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
-         case "seedream":
+      case "seedream":
         endpointUrl = "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
         body.image_urls = [imageUrl];
         body.sync_mode = true; // Важно для получения результата сразу
@@ -146,15 +147,15 @@ export async function POST(req: NextRequest) {
           body.seed = settings.seed;
         }
         if (settings.width != null && settings.height != null) {
-          body.image_size = { width: settings.width, height: settings.height };
-        }
-        break;
+          body.image_size = { width: settings.width, height: settings.height };
+        }
+        break;
 
-      default:
-        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
-    } 
-    // Вызов FAL
-    const response = await fetch(endpointUrl, {
+      default:
+        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
+    }
+    // Вызов FAL
+    const response = await fetch(endpointUrl, {
       method: "POST",
       headers: {
         Authorization: `Key ${FAL_KEY}`,
@@ -220,10 +221,11 @@ export async function POST(req: NextRequest) {
       label,
       labelIndex,
     });
-  } catch (e: any) {
+  } catch (e: unknown) { // <<< ИСПРАВЛЕНО
     console.error("Server-side error:", e);
+    const message = e instanceof Error ? e.message : "Неизвестная ошибка на сервере";
     return NextResponse.json(
-      { error: e?.message || "Неизвестная ошибка на сервере" },
+      { error: message },
       { status: 500 }
     );
   }

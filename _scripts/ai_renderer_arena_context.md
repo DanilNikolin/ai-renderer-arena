@@ -441,6 +441,7 @@ export default function HomePage() {
 ## Файл: `src/app/api/generate/route.ts`
 
 ```typescript
+// src/app/api/generate/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -462,8 +463,8 @@ interface FalRequestBody {
   num_inference_steps?: number;
   guidance_scale?: number;
   safety_tolerance?: number;
-  sync_mode?: boolean; // <--- ДОБАВИЛИ
-  image_size?: { width: number, height: number }; // <--- ДОБАВИЛИ
+  sync_mode?: boolean;
+  image_size?: { width: number, height: number };
 }
 
 // Папка автосейва (env > дефолт)
@@ -580,7 +581,7 @@ export async function POST(req: NextRequest) {
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
-         case "seedream":
+      case "seedream":
         endpointUrl = "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
         body.image_urls = [imageUrl];
         body.sync_mode = true; // Важно для получения результата сразу
@@ -589,15 +590,15 @@ export async function POST(req: NextRequest) {
           body.seed = settings.seed;
         }
         if (settings.width != null && settings.height != null) {
-          body.image_size = { width: settings.width, height: settings.height };
-        }
-        break;
+          body.image_size = { width: settings.width, height: settings.height };
+        }
+        break;
 
-      default:
-        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
-    } 
-    // Вызов FAL
-    const response = await fetch(endpointUrl, {
+      default:
+        return NextResponse.json({ error: `Модель '${model}' не поддерживается` }, { status: 400 });
+    }
+    // Вызов FAL
+    const response = await fetch(endpointUrl, {
       method: "POST",
       headers: {
         Authorization: `Key ${FAL_KEY}`,
@@ -663,15 +664,15 @@ export async function POST(req: NextRequest) {
       label,
       labelIndex,
     });
-  } catch (e: any) {
+  } catch (e: unknown) { // <<< ИСПРАВЛЕНО
     console.error("Server-side error:", e);
+    const message = e instanceof Error ? e.message : "Неизвестная ошибка на сервере";
     return NextResponse.json(
-      { error: e?.message || "Неизвестная ошибка на сервере" },
+      { error: message },
       { status: 500 }
     );
   }
 }
-
 ```
 
 ---
@@ -679,6 +680,7 @@ export async function POST(req: NextRequest) {
 ## Файл: `src/app/api/refine-prompt/route.ts`
 
 ```typescript
+// src/app/api/refine-prompt/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -758,7 +760,6 @@ export async function POST(req: Request) {
     // ---- вызов Chat Completions под GPT-5 ----
     const resp = await client.chat.completions.create({
       model,
-      // @ts-expect-error — SDK принимает мультимодальные части в messages
       messages,
       max_completion_tokens,
       ...(temperature !== undefined ? { temperature } : {}),
@@ -783,15 +784,15 @@ export async function POST(req: Request) {
       { error: `OpenAI не вернула текст. Причина завершения: '${finishReason}'.` },
       { status: 502 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) { // <<< ИСПРАВЛЕНО
     console.error("refine-prompt error:", err);
+    const message = err instanceof Error ? err.message : "Неизвестная ошибка";
     return NextResponse.json(
-      { error: err?.message || "Неизвестная ошибка." },
+      { error: message },
       { status: 500 }
     );
   }
 }
-
 ```
 
 ---
@@ -808,37 +809,23 @@ import { Sidebar } from "./workspace/Sidebar";
 import { Canvas } from "./workspace/Canvas";
 
 export default function ImageWorkspace() {
-  // Вся сложность спрятана здесь. Мы получаем готовый 'контракт'.
   const workspaceState = useImageWorkspace();
 
   return (
     <div
-      className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6"
+      className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 focus:outline-none"
       onKeyDown={workspaceState.onKeyDown}
-      tabIndex={0}
+      tabIndex={-1}
     >
-      {/* Передаем весь набор состояний и функций в сайдбар.
-        Ему не нужно знать, откуда они берутся.
-      */}
+      {/* <<< ПЕРЕДАЕМ ОБНОВЛЕННЫЕ ПРОПСЫ В SIDEBAR */}
       <Sidebar {...workspaceState} />
 
-      {/* Передаем только то, что нужно для отображения.
-      */}
-      <Canvas
-        isLoading={workspaceState.isLoading}
-        resultUrl={workspaceState.resultUrl}
-        sourceUrl={workspaceState.sourceUrl}
-        sourceFile={workspaceState.sourceFile}
-        tab={workspaceState.tab}
-        setTab={workspaceState.setTab}
-        comparePos={workspaceState.comparePos}
-        setComparePos={workspaceState.setComparePos}
-        results={workspaceState.results}
-        handleSelectResult={workspaceState.handleSelectResult}
-      />
+      {/* <<< ПЕРЕДАЕМ ОБНОВЛЕННЫЕ ПРОПСЫ В CANVAS (без урезаний) */}
+      <Canvas {...workspaceState} />
     </div>
   );
 }
+
 ```
 
 ---
@@ -914,128 +901,247 @@ export const Slider: React.FC<{
 
 import React from "react";
 import { cx } from "@/lib/utils";
+import { GenerationNode } from "@/lib/types";
 
-// <<< НОВОЕ: Отдельный компонент для галереи, чтобы не мусорить
-const ResultsGallery: React.FC<{
-  images: string[];
+// --- Внутренний компонент №1: Лоток с базовыми результатами ---
+const BaseResultsTray: React.FC<{
+  nodes: GenerationNode[];
+  selectedUrl: string | null;
   onSelect: (url: string) => void;
-}> = ({ images, onSelect }) => {
+  onPromote: (id: string) => void;
+}> = ({ nodes, selectedUrl, onSelect, onPromote }) => {
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
-        Галерея результатов (кликни, чтобы доработать)
+        Лоток базовых результатов (кликни для сравнения, затем отправь в PRO)
       </div>
       <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
-        {images.map((url, index) => (
-          <button
-            key={url}
-            onClick={() => onSelect(url)}
-            className="aspect-square bg-gray-900 rounded-md overflow-hidden hover:ring-2 ring-cyan-500 transition-all focus:outline-none focus:ring-2"
-            title={`Выбрать результат #${index + 1} для доработки`}
-          >
-            <img
-              src={url}
-              alt={`Result ${index + 1}`}
-              className="w-full h-full object-cover"
-            />
-          </button>
+        {nodes.map((node) => (
+          <div key={node.id} className="relative group">
+            <button
+              onClick={() => onSelect(node.imageUrl)}
+              className={cx(
+                "w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
+                node.imageUrl === selectedUrl
+                  ? "ring-2 ring-cyan-500"
+                  : "hover:ring-2 ring-gray-600"
+              )}
+            >
+              <img
+                src={node.imageUrl}
+                alt={`Base result ${node.id}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
+            <button
+              onClick={() => onPromote(node.id)}
+              className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              В PRO →
+            </button>
+          </div>
         ))}
       </div>
     </div>
   );
 };
 
-
-// <<< ИЗМЕНЕНО: Пропсы для управления состоянием и отображением
-interface CanvasProps {
-  isLoading: boolean;
-  resultUrl: string | null;
+// --- Внутренний компонент №2: Сравнение "до/после" ---
+const CompareView: React.FC<{
   sourceUrl: string | null;
-  sourceFile: File | null;
-  tab: "source" | "result" | "compare";
-  setTab: (tab: "source" | "result" | "compare") => void;
+  resultUrl: string | null;
   comparePos: number;
   setComparePos: (pos: number) => void;
-  // <<< НОВОЕ: Пропсы для галереи
-  results: string[];
-  handleSelectResult: (url: string) => void;
+}> = ({ sourceUrl, resultUrl, comparePos, setComparePos }) => {
+  return (
+    <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
+      {!sourceUrl && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
+          Загрузите скетч
+        </div>
+      )}
+      {sourceUrl && (
+        <img
+          src={sourceUrl}
+          alt="Source"
+          className="absolute inset-0 w-full h-full object-contain"
+        />
+      )}
+      {sourceUrl && resultUrl && (
+        <>
+          <img
+            src={resultUrl}
+            alt="Result (clipped)"
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }}
+          />
+          <div
+            className="absolute inset-y-0 w-0.5 bg-cyan-500/70 pointer-events-none"
+            style={{ left: `${comparePos}%` }}
+          />
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={comparePos}
+            onChange={(e) => setComparePos(Number(e.target.value))}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[60%] h-2 bg-gray-700/50 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+          />
+        </>
+      )}
+    </div>
+  );
+};
+
+// --- Внутренний компонент №3: Дерево PRO-генераций ---
+const GenerationTree: React.FC<{
+  nodes: GenerationNode[];
+  activeNodeId: string | null;
+  onSelectNode: (id: string) => void;
+}> = ({ nodes, activeNodeId, onSelectNode }) => {
+  // Группируем узлы по родителям для визуализации веток
+  const nodesByParent = nodes.reduce((acc, node) => {
+    const parentId = node.parentId ?? "root";
+    if (!acc[parentId]) acc[parentId] = [];
+    acc[parentId].push(node);
+    return acc;
+  }, {} as Record<string, GenerationNode[]>);
+
+  const renderBranch = (parentId: string | null) => {
+    const key = parentId ?? "root";
+    const children = nodesByParent[key];
+    if (!children || children.length === 0) return null;
+
+    return (
+      <div
+        className={cx(
+          "flex items-start gap-3",
+          parentId !== null && "pl-6 border-l border-gray-700/50"
+        )}
+      >
+        {children.map((node) => (
+          <div key={node.id} className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => onSelectNode(node.id)}
+              className={cx(
+                "w-24 h-24 bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none shrink-0",
+                node.id === activeNodeId
+                  ? "ring-2 ring-cyan-500 shadow-lg shadow-cyan-500/20"
+                  : "hover:ring-2 ring-gray-600"
+              )}
+              title={`Выбрать узел #${node.id.slice(0, 4)}`}
+            >
+              <img
+                src={node.imageUrl}
+                alt={`Node ${node.id}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
+            <div className="text-[10px] text-gray-500">#{node.id.slice(0, 4)}</div>
+            <div className="flex flex-col gap-3">{renderBranch(node.id)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-gray-850 border border-gray-800 rounded-xl">
+      <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
+        Дерево Генераций (кликни, чтобы выбрать исходник)
+      </div>
+      <div className="p-4 overflow-x-auto">{renderBranch(null)}</div>
+    </div>
+  );
+};
+
+// --- ОСНОВНОЙ КОМПОНЕНТ CANVAS ---
+interface CanvasProps {
+  // Общие
+  isLoading: boolean;
+  sourceFile: File | null;
+  sourceUrl: string | null;
+
+  // Управление вкладками
+  activeTab: "BASE" | "PRO";
+
+  // Для BASE и "Прихожей"
+  baseResults: GenerationNode[];
+  selectedBaseResultUrl: string | null;
+  setSelectedBaseResultUrl: (url: string) => void;
+  comparePos: number;
+  setComparePos: (pos: number) => void;
+
+  // Для PRO-"Мастерской"
+  activeHistory: GenerationNode[]; // <<< ИЗМЕНЕНО
+  activeNodeId: string | null;
+  setActiveNodeId: (id: string) => void;
+  activeNode: GenerationNode | null;
+
+  // Общие
+  handlePromoteToPro: (id: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   isLoading,
-  resultUrl,
-  sourceUrl,
   sourceFile,
-  tab,
-  setTab,
+  sourceUrl,
+
+  // Tabs
+  activeTab,
+
+  // BASE
+  baseResults,
+  selectedBaseResultUrl,
+  setSelectedBaseResultUrl,
   comparePos,
   setComparePos,
-  // <<< НОВОЕ: Получаем пропсы для галереи
-  results,
-  handleSelectResult,
+
+  // PRO
+  activeHistory, // <<< ИЗМЕНЕНО
+  activeNodeId,
+  setActiveNodeId,
+  activeNode,
+
+  // Общие
+  handlePromoteToPro,
 }) => {
-  // Инкапсулируем логику скачивания прямо здесь
   const handleDownloadSource = () => {
-    if (!sourceUrl || !sourceFile) return;
+    if (!sourceFile) return;
     const link = document.createElement("a");
-    link.href = sourceUrl;
+    link.href = URL.createObjectURL(sourceFile);
     link.download = sourceFile.name || "source.png";
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
   };
 
   const handleDownloadResult = () => {
-    if (!resultUrl) return;
+    const url = activeTab === "BASE" ? selectedBaseResultUrl : activeNode?.imageUrl;
+    if (!url) return;
     const link = document.createElement("a");
-    link.href = resultUrl;
+    link.href = url;
     link.download = "result.png";
     link.click();
   };
 
   return (
     <section className="space-y-4">
-      {/* top bar */}
+      {/* Верхняя панель */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-400">
-          {isLoading
-            ? "Обработка…"
-            : resultUrl
-            ? "Готово"
-            : "Ожидает запуска"}
-        </div>
-
+        <div className="text-sm text-gray-400">{isLoading ? "Обработка…" : "Готово"}</div>
         <div className="flex items-center gap-2">
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-1 flex">
-            {(["source", "result", "compare"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={cx(
-                  "px-3 py-1.5 text-xs rounded-md",
-                  tab === t
-                    ? "bg-gray-800 text-gray-100"
-                    : "text-gray-400 hover:text-gray-200"
-                )}
-              >
-                {t === "source"
-                  ? "Исходник"
-                  : t === "result"
-                  ? "Результат"
-                  : "Сравнить"}
-              </button>
-            ))}
-          </div>
-
           <button
             onClick={handleDownloadSource}
-            disabled={!sourceUrl}
+            disabled={!sourceFile}
             className="text-xs px-2.5 py-1.5 rounded border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
           >
             Скачать исходник
           </button>
-
           <button
             onClick={handleDownloadResult}
-            disabled={!resultUrl}
+            disabled={!(activeTab === "BASE" ? selectedBaseResultUrl : activeNode)}
             className="text-xs px-2.5 py-1.5 rounded border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
           >
             Скачать результат
@@ -1043,94 +1149,91 @@ export const Canvas: React.FC<CanvasProps> = ({
         </div>
       </div>
 
-      {/* canvases */}
+      {/* Просмотр */}
       <div className="bg-gray-850 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
-          {tab === "source"
-            ? "Исходное изображение"
-            : tab === "result"
-            ? "Результат"
-            : "Сравнение (двигай слайдер)"}
+          {activeTab === "BASE"
+            ? "Сравнение с исходным скетчем"
+            : `Мастерская: узел #${activeNodeId?.slice(0, 4) ?? "..."}`}
         </div>
 
-       <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
-  {/* --- ОБЩИЙ БЛОК ДЛЯ ВСЕХ СОСТОЯНИЙ --- */}
-  
-  {/* Исходник (виден всегда, кроме таба "Результат") */}
-  {tab !== "result" && !sourceUrl && (
-    <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-      Загрузите изображение
-    </div>
-  )}
-  {tab !== "result" && sourceUrl && (
-    <img
-      src={sourceUrl}
-      alt="Source"
-      className="absolute inset-0 w-full h-full object-contain"
-    />
-  )}
+        {activeTab === "BASE" && (
+          <CompareView
+            sourceUrl={sourceUrl}
+            resultUrl={selectedBaseResultUrl}
+            comparePos={comparePos}
+            setComparePos={setComparePos}
+          />
+        )}
 
-  {/* Результат (виден только в табах "Результат" и "Сравнение") */}
-  {tab !== "source" && !resultUrl && (
-    <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-      Пока пусто
-    </div>
-  )}
-  {tab === "result" && resultUrl && (
-    <img
-      src={resultUrl}
-      alt="Result"
-      className="absolute inset-0 w-full h-full object-contain"
-    />
-  )}
-
-  {/* Блок сравнения (активен только в табе "Сравнение" и если есть обе картинки) */}
-  {tab === "compare" && sourceUrl && resultUrl && (
-    <>
-      {/* Исходник уже отрендерен выше как фон, теперь рендерим результат поверх с обрезкой */}
-      <img
-        src={resultUrl}
-        alt="Result (clipped)"
-        className="absolute inset-0 w-full h-full object-contain"
-        style={{ clipPath: `inset(0 ${100 - comparePos}% 0 0)` }}
-      />
-      <div
-        className="absolute inset-y-0 w-0.5 bg-cyan-500/70 pointer-events-none"
-        style={{ left: `${comparePos}%` }}
-      />
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={comparePos}
-        onChange={(e) => setComparePos(Number(e.target.value))}
-        className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[60%] h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-      />
-    </>
-  )}
-
-  {/* Оверлей загрузки (поверх всего) */}
-  {isLoading && (
-    <div
-      className="absolute inset-0 bg-gray-800/50 animate-pulse"
-      aria-label="loading"
-    />
-  )}
-</div>
+        {activeTab === "PRO" && (
+          <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
+            {!activeNode && (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
+                Выберите базовый результат для доработки
+              </div>
+            )}
+            {activeNode && (
+              <img
+                src={activeNode.imageUrl}
+                alt="Active PRO node"
+                className="absolute inset-0 w-full h-full object-contain"
+              />
+            )}
+            {isLoading && <div className="absolute inset-0 bg-gray-800/50 animate-pulse" />}
+          </div>
+        )}
       </div>
 
-      {/* <<< НОВОЕ: Рендерим галерею, если есть результаты */}
-      {results.length > 0 && (
-        <ResultsGallery images={results} onSelect={handleSelectResult} />
+      {/* <<< ПЕРЕПИСАНО: Логика отображения нижней части */}
+
+      {/* Таб BASE: всегда показываем лоток */}
+      {activeTab === "BASE" && baseResults.length > 0 && (
+        <BaseResultsTray
+          nodes={baseResults}
+          selectedUrl={selectedBaseResultUrl}
+          onSelect={setSelectedBaseResultUrl}
+          onPromote={handlePromoteToPro}
+        />
+      )}
+
+      {/* Таб PRO: показываем либо "Прихожую", либо "Мастерскую" */}
+      {activeTab === "PRO" && (
+        <>
+          {/* "Прихожая": если нет активного воркспейса, но есть базовые результаты */}
+          {activeHistory.length === 0 && baseResults.length > 0 && (
+            <div className="bg-gray-850 border border-gray-800 rounded-xl">
+              <div className="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-yellow-300">
+                Шаг 1: Выберите исходник для доработки
+              </div>
+              {/* Используем тот же лоток, но клик по превью не активирует сравнение — только кнопка "В PRO" */}
+              <BaseResultsTray
+                nodes={baseResults}
+                selectedUrl={null}
+                onSelect={() => {}}
+                onPromote={handlePromoteToPro}
+              />
+            </div>
+          )}
+
+          {/* "Мастерская": если есть активный воркспейс */}
+          {activeHistory.length > 0 && (
+            <GenerationTree
+              nodes={activeHistory}
+              activeNodeId={activeNodeId}
+              onSelectNode={setActiveNodeId}
+            />
+          )}
+        </>
       )}
 
       <div className="text-[11px] text-gray-500">
-        Лайфхак: короткий промпт → выбери модель → Ctrl/Cmd+Enter. Вставка из
-        буфера работает.
+        Лайфхак: короткий промпт → выбери модель → Ctrl/Cmd+Enter.
       </div>
     </section>
   );
 };
+
 ```
 
 ---
@@ -1139,7 +1242,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
 ```typescript
 // src/components/workspace/Sidebar.tsx
-
 import React, { ChangeEvent, DragEvent, RefObject } from "react";
 import { cx } from "@/lib/utils";
 import {
@@ -1148,27 +1250,32 @@ import {
   LlmSettings,
   MAX_FILE_SIZE_MB,
   Model,
+  GenerationNode,
   QwenSettings,
   SeedreamSettings,
 } from "@/lib/types";
 import { Label, Slider } from "@/components/ui/FormControls";
 
-// Определяем все пропсы, которые понадобятся этому компоненту
 interface SidebarProps {
+  activeTab: 'BASE' | 'PRO';
+  handleTabChange: (tab: 'BASE' | 'PRO') => void;
+  handleChangeSource: () => void;
+  activeHistory: GenerationNode[];
+
   imageInfo: { w: number; h: number } | null;
   sourceFile: File | null;
-  dropRef: RefObject<HTMLLabelElement>;
+  dropRef: RefObject<HTMLLabelElement | null>;
   onDrop: (e: DragEvent<HTMLLabelElement>) => void;
   onFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
   showRefiner: boolean;
   setShowRefiner: (value: React.SetStateAction<boolean>) => void;
   rawPrompt: string;
-  setRawPrompt: (value: string) => void;
-  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> }; // <<< ИЗМЕНЕНО
-  handleLlmSettingsChange: (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => void;
-  sendImageToLlm: boolean;
+  setRawPrompt: (value: string) => void;
+  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> };
+  handleLlmSettingsChange: (
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
+  sendImageToLlm: boolean;
   setSendImageToLlm: (value: boolean) => void;
   onRefinePrompt: () => void;
   isRefining: boolean;
@@ -1201,15 +1308,24 @@ interface SidebarProps {
   setIsJsonViewerOpen: (value: React.SetStateAction<boolean>) => void;
   jsonError: string | null;
   onJsonFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  isDetailingMode: boolean;
   promptTokenCount: number;
   negativeTokenCount: number;
   seedreamTargetSize: 1024 | 1280 | 'original';
   setSeedreamTargetSize: (size: 1024 | 1280 | 'original') => void;
   seedreamSizeWarning: string | null;
+  windowView: string;
+  setWindowView: (value: string) => void;
+  doorView: string;
+  setDoorView: (value: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any; // <<< ИСПРАВЛЕНО (заглушили линтер)
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  handleTabChange,
+  handleChangeSource,
+  activeHistory,
   imageInfo,
   sourceFile,
   dropRef,
@@ -1254,12 +1370,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsJsonViewerOpen,
   jsonError,
   onJsonFileChange,
-  isDetailingMode,
   promptTokenCount,
   negativeTokenCount,
   seedreamTargetSize,
   setSeedreamTargetSize,
   seedreamSizeWarning,
+  windowView,
+  setWindowView,
+  doorView,
+  setDoorView,
 }) => {
   const activeLlmSettings = React.useMemo(() => {
     const defaults = {
@@ -1272,233 +1391,360 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return { ...defaults, ...llmSettingsByModel[selectedModel] };
   }, [llmSettingsByModel, selectedModel]);
 
+  // Универсальный обработчик для селекторов окружения
+  const handleTemplateChange = (e: ChangeEvent<HTMLSelectElement>, setter: (val: string) => void) => {
+    const value = e.target.value;
+    if (value) {
+      setter(value);
+    }
+  };
+
+  const windowTemplates = [
+    { label: 'Лес летний', value: 'a lush green summer forest with sunbeams filtering through the leaves' },
+    { label: 'Лес зимний', value: 'a quiet, snow-covered winter forest with tall pine trees' },
+    { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky' },
+    { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence' },
+    { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow' },
+  ];
+
+  const doorTemplates = [
+    { label: 'Предбанник', value: 'a cozy antechamber (changing room) with wooden benches' },
+    { label: 'Современный коридор', value: 'a modern, minimalist hallway with soft lighting' },
+    { label: 'Раздевалка', value: 'a clean, bright locker room with wooden cabinets' },
+    { label: 'Другая комната', value: 'another sauna room, slightly out of focus' },
+  ];
+
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
-      {/* file */}
-      <div className="space-y-2">
-        <Label
-          title={isDetailingMode ? "Изображение для доработки" : "Исходное изображение"}
-          right={
-            imageInfo && (
-              <span className="text-[10px] text-gray-500">
-                {imageInfo.w}×{imageInfo.h}px
-              </span>
-            )
-          }
-        />
-        <label
-          ref={dropRef}
-          htmlFor="image-upload"
-          onDrop={onDrop}
-          onDragOver={(e) => e.preventDefault()}
+
+      {/* Переключатель */}
+      <div className="mb-5 bg-gray-900 border border-gray-800 rounded-lg p-1 flex">
+        <button
+          onClick={() => handleTabChange('BASE')}
           className={cx(
-            "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
-            "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
+            "w-1/2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors",
+            activeTab === 'BASE'
+              ? "bg-gray-700 text-white"
+              : "text-gray-400 hover:bg-gray-800 hover:text-white"
           )}
-          title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
         >
-          {sourceFile ? (
-            <div className="text-left space-y-1">
-              <p className="text-cyan-400 text-sm font-medium truncate">
-                {sourceFile.name}
-              </p>
-              <p className="text-xs text-gray-500">
-                {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
-                {sourceFile.type.replace("image/", "").toUpperCase()}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <p className="text-sm text-gray-400">
-                Перетащи или нажми, чтобы выбрать
-              </p>
-              <p className="text-xs text-gray-500">
-                PNG, JPEG, WebP • до {MAX_FILE_SIZE_MB}MB • Ctrl+V из буфера
-              </p>
-            </div>
+          Стартовая площадка
+        </button>
+        <button
+          onClick={() => handleTabChange('PRO')}
+          className={cx(
+            "w-1/2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors",
+            activeTab === 'PRO'
+              ? "bg-cyan-600 text-white"
+              : "text-gray-400 hover:bg-gray-800 hover:text-white"
           )}
-          <input
-            id="image-upload"
-            type="file"
-            className="hidden"
-            accept={ACCEPTED_FILE_TYPES.join(",")}
-            onChange={onFileChange}
-          />
-        </label>
+        >
+          Мастерская (PRO)
+        </button>
       </div>
 
-      {/* JSON Viewer */}
-      <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
-        <button
-          type="button"
-          onClick={() => setIsJsonViewerOpen((v) => !v)}
-          className="w-full text-left text-sm font-medium text-yellow-400"
-        >
-          {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
-        </button>
-        {isJsonViewerOpen && (
-          <div className="pt-2 space-y-3">
+      {/* Контент BASE режима */}
+      {activeTab === 'BASE' && (
+        <div className="space-y-5">
+          {/* file */}
+          <div className="space-y-2">
+            <Label
+              title={"Исходное изображение (скетч)"}
+              right={
+                imageInfo && (
+                  <span className="text-[10px] text-gray-500">
+                    {imageInfo.w}×{imageInfo.h}px
+                  </span>
+                )
+              }
+            />
             <label
-              htmlFor="json-upload"
-              className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+              ref={dropRef}
+              htmlFor="image-upload"
+              onDrop={onDrop}
+              onDragOver={(e) => e.preventDefault()}
+              className={cx(
+                "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
+                "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
+              )}
+              title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
             >
-              Нажми, чтобы выбрать .json файл
+              {sourceFile ? (
+                <div className="text-left space-y-1">
+                  <p className="text-cyan-400 text-sm font-medium truncate">
+                    {sourceFile.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
+                    {sourceFile.type.replace("image/", "").toUpperCase()}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-400">
+                    Перетащи или нажми, чтобы выбрать
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    PNG, JPEG, WebP • до {MAX_FILE_SIZE_MB}MB • Ctrl+V из буфера
+                  </p>
+                </div>
+              )}
               <input
-                id="json-upload"
+                id="image-upload"
                 type="file"
                 className="hidden"
-                accept="application/json"
-                onChange={onJsonFileChange}
+                accept={ACCEPTED_FILE_TYPES.join(",")}
+                onChange={onFileChange}
               />
             </label>
+          </div>
 
-            {jsonError && (
-              <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
-                {jsonError}
-              </p>
-            )}
+          {/* JSON Viewer */}
+          <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+            <button
+              type="button"
+              onClick={() => setIsJsonViewerOpen((v) => !v)}
+              className="w-full text-left text-sm font-medium text-yellow-400"
+            >
+              {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
+            </button>
+            {isJsonViewerOpen && (
+              <div className="pt-2 space-y-3">
+                <label
+                  htmlFor="json-upload"
+                  className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+                >
+                  Нажми, чтобы выбрать .json файл
+                  <input
+                    id="json-upload"
+                    type="file"
+                    className="hidden"
+                    accept="application/json"
+                    onChange={onJsonFileChange}
+                  />
+                </label>
 
-            {jsonContent && (
-              <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
-                <code>{jsonContent}</code>
-              </pre>
+                {jsonError && (
+                  <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
+                    {jsonError}
+                  </p>
+                )}
+
+                {jsonContent && (
+                  <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
+                    <code>{jsonContent}</code>
+                  </pre>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-      
-      {/* <<< ИЗМЕНЕНИЕ: Весь блок промпт-инженера теперь показывается по условию */}
-      {!isDetailingMode && (
-        <div
-          className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
-          style={{ backgroundColor: "#221b25ff" }}
-        >
-          <button
-            type="button"
-            onClick={() => setShowRefiner((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400"
-          >
-            {showRefiner
-              ? "▼ Скрыть «Промпт-Инженер»"
-              : "► Открыть «Промпт-Инженер»"}
-          </button>
-          {showRefiner && (
-            <div className="pt-2 space-y-4">
-              <div>
-                <Label title="1. Сообщение для LLM" />
-                <textarea
-                  rows={3}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
-                  value={rawPrompt}
-                  onChange={(e) => setRawPrompt(e.target.value)}
-                />
-              </div>
 
-              <div>
-                <Label title="2. Системный промпт для LLM" />
-                <textarea
-                  name="systemPrompt"
-                  rows={6}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  value={activeLlmSettings.systemPrompt}
-                  onChange={handleLlmSettingsChange}
-                />
-              </div>
+          {/* Настройка окружения */}
+          <div className="mt-5 space-y-4 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+            <h3 className="text-sm font-medium text-gray-200">Настройка окружения</h3>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label title="Модель" />
-                  <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
-                    {(["gpt-5-mini", "gpt-5-nano"] as const).map((model) => (
-                      <button
-                        key={model}
-                        onClick={() =>
-                        // Имитируем событие для нашего универсального хендлера
-                        handleLlmSettingsChange({
-                          target: { name: 'model', value: model },
-                        } as any)
-                      }
-                        className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                        activeLlmSettings.model === model
-                          ? "bg-cyan-600 text-white"
-                          : "hover:bg-gray-800"
-                      }`}
-                      >
-                        {model.replace("gpt-5-", "GPT-5 ")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
-                  <Label title="Контекст" />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={sendImageToLlm}
-                      onChange={(e) => setSendImageToLlm(e.target.checked)}
-                      className="accent-cyan-500"
-                      disabled={!sourceFile}
-                    />
-                    Отправить картинку
-                  </div>
-                </label>
-              </div>
-
-              <div className="pt-2 border-t border-gray-800 space-y-4">
-                <Slider
-                  label="Temperature"
-                  name="temperature"
-                  value={activeLlmSettings.temperature}
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  onChange={handleLlmSettingsChange}
-                />
-                <Slider
-                  label="Top P"
-                  name="topP"
-                  value={activeLlmSettings.topP}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={handleLlmSettingsChange}
-                />
-                <Slider
-                  label="Max Tokens"
-                  name="maxCompletionTokens"
-                  value={activeLlmSettings.maxCompletionTokens}
-                  min={50}
-                  max={1000}
-                  step={10}
-                  onChange={handleLlmSettingsChange}
-                />
-              </div>
-
-              <div className="text-center">
-                <button
-                  onClick={onRefinePrompt}
-                  disabled={!rawPrompt.trim() || isRefining}
-                  className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+            {/* Window View */}
+            <div>
+              <Label title="Вид из окна" />
+              <div className="flex gap-2">
+                <select
+                  onChange={(e) => handleTemplateChange(e, setWindowView)}
+                  className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 >
-                  {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
-                </button>
+                  <option value="">Шаблоны...</option>
+                  {windowTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <input
+                  type="text"
+                  value={windowView}
+                  onChange={(e) => setWindowView(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="... или впиши свой вариант"
+                />
               </div>
-
-              {refineError && (
-                <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
-                  {refineError}
-                </p>
-              )}
             </div>
-          )}
+
+            {/* Door View */}
+            <div>
+              <Label title="Вид за дверью" />
+              <div className="flex gap-2">
+                <select
+                  onChange={(e) => handleTemplateChange(e, setDoorView)}
+                  className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                >
+                  <option value="">Шаблоны...</option>
+                  {doorTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <input
+                  type="text"
+                  value={doorView}
+                  onChange={(e) => setDoorView(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="... или впиши свой вариант"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Промпт-Инженер */}
+          <div
+            className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
+            style={{ backgroundColor: "#221b25ff" }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowRefiner((v) => !v)}
+              className="w-full text-left text-sm font-medium text-cyan-400"
+            >
+              {showRefiner
+                ? "▼ Скрыть «Промпт-Инженер»"
+                : "► Открыть «Промпт-Инженер»"}
+            </button>
+            {showRefiner && (
+              <div className="pt-2 space-y-4">
+                <div>
+                  <Label title="1. Сообщение для LLM" />
+                  <textarea
+                    rows={3}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
+                    value={rawPrompt}
+                    onChange={(e) => setRawPrompt(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label title="2. Системный промпт для LLM" />
+                  <textarea
+                    name="systemPrompt"
+                    rows={6}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    value={activeLlmSettings.systemPrompt}
+                    onChange={handleLlmSettingsChange}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label title="Модель" />
+                    <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
+                      {((["gpt-5-mini", "gpt-5-nano"] as const)).map((model) => (
+                        <button
+                          key={model}
+                          onClick={() =>
+                            // Имитируем событие для нашего универсального хендлера
+                            handleLlmSettingsChange({
+                              target: { name: 'model', value: model },
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            } as any) // <<< ИСПРАВЛЕНО (заглушили линтер)
+                          }
+                          className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
+                            activeLlmSettings.model === model
+                              ? "bg-cyan-600 text-white"
+                              : "hover:bg-gray-800"
+                          }`}
+                        >
+                          {model.replace("gpt-5-", "GPT-5 ")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
+                    <Label title="Контекст" />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={sendImageToLlm}
+                        onChange={(e) => setSendImageToLlm(e.target.checked)}
+                        className="accent-cyan-500"
+                        disabled={!sourceFile}
+                      />
+                      Отправить картинку
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-2 border-t border-gray-800 space-y-4">
+                  <Slider
+                    label="Temperature"
+                    name="temperature"
+                    value={activeLlmSettings.temperature}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    onChange={handleLlmSettingsChange}
+                  />
+                  <Slider
+                    label="Top P"
+                    name="topP"
+                    value={activeLlmSettings.topP}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={handleLlmSettingsChange}
+                  />
+                  <Slider
+                    label="Max Tokens"
+                    name="maxCompletionTokens"
+                    value={activeLlmSettings.maxCompletionTokens}
+                    min={50}
+                    max={1000}
+                    step={10}
+                    onChange={handleLlmSettingsChange}
+                  />
+                </div>
+
+                <div className="text-center">
+                  <button
+                    onClick={onRefinePrompt}
+                    disabled={!rawPrompt.trim() || isRefining}
+                    className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+                  >
+                    {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
+                  </button>
+                </div>
+
+                {refineError && (
+                  <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
+                    {refineError}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
+      {/* Контент PRO режима */}
+      {activeTab === 'PRO' && (
+        <div className="space-y-3">
+          {/* <<< НОВОЕ: Кнопка смены исходника */}
+          {activeHistory.length > 0 && (
+             <div className="mb-2">
+                <button 
+                  onClick={handleChangeSource}
+                  className="w-full text-center text-xs text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 bg-yellow-900/20 rounded-md py-2 transition"
+                >
+                  ↩︎ Сменить исходник
+                </button>
+             </div>
+          )}
+          <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
+          {/* ЗАГЛУШКИ */}
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Текстуры</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Стиля</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Фона</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Внедрение Объекта</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Редактор по Стрелкам</div>
+        </div>
+      )}
+
+
+      {/* Общие блоки для обоих режимов */}
       {/* prompt */}
       <div className="mt-5 space-y-2">
         <Label
-          title={isDetailingMode ? "Опишите правку" : "Инструкция для генерации"}
+          title={activeTab === 'BASE' ? "Инструкция для генерации" : "Опишите правку"}
           right={
             <span className="text-[10px] text-gray-500">
               Токены: {promptTokenCount}
@@ -1508,12 +1754,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <textarea
           rows={5}
           className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-          placeholder={isDetailingMode ? "Напр.: Add a white towel on the bench" : "Напр.: Change the walls to photorealistic Canadian cedar..."}
+          placeholder={activeTab === 'BASE' ? "Создай фотореалистичную сауну..." : "Например: сделай эту стену из темного камня"}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
 
-         <button
+        <button
           type="button"
           onClick={() => setShowNeg((v) => !v)}
           className="text-xs text-gray-400 hover:text-gray-200 transition underline underline-offset-4"
@@ -1585,7 +1831,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <>
             <Slider
               label="Guidance scale"
-              value={qwenSettings.guidance_scale}
+              value={qwenSettings?.guidance_scale ?? 4}
               min={1}
               max={10}
               step={0.1}
@@ -1594,7 +1840,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Inference Steps"
-              value={qwenSettings.num_inference_steps}
+              value={qwenSettings?.num_inference_steps ?? 30}
               min={10}
               max={60}
               step={1}
@@ -1603,7 +1849,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Seed"
-              value={qwenSettings.seed}
+              value={qwenSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -1617,7 +1863,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <>
             <Slider
               label="Guidance scale (CFG)"
-              value={fluxSettings.guidance_scale}
+              value={fluxSettings?.guidance_scale ?? 3.5}
               min={0}
               max={10}
               step={0.1}
@@ -1626,7 +1872,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Safety Tolerance"
-              value={fluxSettings.safety_tolerance}
+              value={fluxSettings?.safety_tolerance ?? 2}
               min={0}
               max={10}
               step={0.5}
@@ -1636,7 +1882,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Seed"
-              value={fluxSettings.seed}
+              value={fluxSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -1648,7 +1894,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {selectedModel === "seedream" && (
           <>
-            {/* <<< НАШ НОВЫЙ БЛОК УПРАВЛЕНИЯ РАЗМЕРОМ */}
+            {/* БЛОК УПРАВЛЕНИЯ РАЗМЕРОМ */}
             <div>
               <Label title="Размер вывода (длинная сторона)" />
               <div className="grid grid-cols-3 gap-2">
@@ -1668,7 +1914,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ))}
               </div>
             </div>
-            {/* КОНЕЦ НОВОГО БЛОКА */}
+            {/* КОНЕЦ БЛОКА */}
             {seedreamSizeWarning && (
               <p className="text-[11px] text-yellow-300 bg-yellow-900/40 border border-yellow-800/50 p-2 rounded-md mt-2">
                 {seedreamSizeWarning}
@@ -1677,7 +1923,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <Slider
               label="Seed"
-              value={seedreamSettings.seed}
+              value={seedreamSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -1707,7 +1953,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
           title="Ctrl/Cmd+Enter — тоже сработает"
         >
-          {isLoading ? "Генерация..." : isDetailingMode ? "Доработать" : "Сгенерировать"}
+          {isLoading ? "Обработка..." : (activeTab === 'BASE' ? "Сгенерировать" : "Доработать")}
         </button>
 
         <div className="flex items-center justify-between">
@@ -1752,283 +1998,405 @@ export const Sidebar: React.FC<SidebarProps> = ({
 ```typescript
 // src/hooks/useImageWorkspace.ts
 
-import { useState, useMemo, useEffect, useRef, ChangeEvent, DragEvent, KeyboardEvent } from "react";
+import { useState, useMemo, useEffect, useRef, ChangeEvent, DragEvent, KeyboardEvent, useCallback } from "react";
 import { encode } from "gpt-tokenizer";
-import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings } from "@/lib/types";
+import { FluxSettings, LlmSettings, Model, QwenSettings, SeedreamSettings, GenerationNode } from "@/lib/types"; // добавили GenerationNode
 import { loadPersist, readImageDims, savePersist } from "@/lib/utils";
 
 const defaultLlmSettings: LlmSettings = {
-  model: 'gpt-5-mini',
-  systemPrompt: `Ты — «Промт-Инженер», специализированный AI-аналитик. Твоя задача — анализировать сырые входные данные (изображение-чертеж сауны и текстовый список материалов с уже готовыми описаниями) и скомпоновать из них сверхкороткий, убийственно-точный промт для AI-«Художника» (модели типа Qwen-Image-Edit, FLUX).
+  model: 'gpt-5-mini',
+  systemPrompt: `Ты — «Промт-Инженер», специализированный AI-аналитик. Твоя задача — анализировать сырые входные данные (изображение-чертеж сауны с цветными областями и текстовый список материалов) и скомпоновать из них сверхкороткий, убийственно-точный промт для AI-«Художника» (модель Qwen-Image-Edit).
+
 Твои руководящие принципы:
-Контекст: «Художники» (Qwen-Image-Edit и аналоги) держат фокус на первых 4-5 строках. Всё, что дальше — лотерея. Твой итоговый промт должен быть как телеграмма: максимум смысла в минимуме слов.
-Фильтрация: На входе — чертеж и список материалов. Черные области на чертеже — это не дизайн, а дыры (окна, двери), которые нужно заполнить. Работай только с видимыми объектами и соответствующими им материалами из списка.
+
+Контекст: «Художник» держит фокус на первых 4-5 строках. Твой итоговый промт должен быть как телеграмма: максимум смысла в минимуме слов, не превышая ~250 токенов.
+
+Автономность: Ты не перекладываешь логику на «Художника». Ты сам анализируешь входные данные и принимаешь решения о том, какие инструкции включать в итоговый промт.
+
 АЛГОРИТМ СБОРКИ ИТОГОВОГО ПРОМТА ДЛЯ «ХУДОЖНИКА»:
-Твой итоговый промт должен иметь железобетонную структуру. Собирай его строго в этом порядке.
-БЛОК 1: ЗАДАЧА, ГЕОМЕТРИЯ И ЧЕРНЫЕ ДЫРЫ (Высший приоритет)
-Инструкция: Начинай промт с общей задачи, в которую вшито главное ограничение по геометрии. Сразу после, если видишь черные области, добавь команды для их замены. Это самый важный блок.
-Шаблоны для генерации:
-Преамбула: You are editing a 3D render to create a masterpiece. Preserve the exact geometry, proportions, and camera FOV.
-Окно: ⚡ A black area on the wall = A photorealistic glass window with a thin wooden frame matching the reference, viewing a Scandinavian forest.
-Панорамная стена: ⚡ A black wall = A panoramic, floor-to-ceiling glass wall with a thin frame matching the reference, viewing a Scandinavian forest. (Используй, если черная область занимает почти всю стену).
-Дверь: ⚡ A black doorway = A frameless glass door leading into a bright, minimalist entryway finished with the same wood as the sauna walls.
-БЛОК 2: МАТЕРИАЛЫ («Прямой проброс»)
-Инструкция: Это твоя основная работа. Твоя задача — взять готовую строку с описанием материала из списка клиента и напрямую вставить ее в итоговый промт. Ничего не додумывай. Просто сгруппируй объекты с одинаковым материалом и передай описание как есть.
-Формат генерации: [Объект 1], [Объект 2]: [Описание из списка клиента]. [Объект 3]: [Другое описание из списка].
-Пример того, что ты должен сгенерить: Walls, floor: Canadian Cedar polished, with clear texture. Benches: Linden wood.
-БЛОК 3: СВЕТ
-Инструкция: После материалов добавь короткую, ясную команду по свету.
-Шаблон для генерации: The lighting must be warm and soft with physically correct shadows; if a window is present, add contrasting cool daylight.
-БЛОК 4: ФИНАЛЬНОЕ КАЧЕСТВО (Приказ)
-Инструкция: В самом конце промта добавь одну мощную команду, которая задает финальную планку качества.
-Шаблон для генерации: Elevate the entire image to the quality of an architectural magazine cover, focusing on photorealistic lighting and textures.
-Формат вывода: Итоговый промт для «Художника» не должен превышать 5-7 предложений (примерно 200-250 токенов). Будь безжалостен к каждому слову.
+
+Собирай итоговый промт строго в этом порядке.
+
+БЛОК 0: КОНТЕКСТ И ДИНАМИЧЕСКИЕ ТЕГИ (Новая логика)
+
+Инструкция: В конце сообщения от пользователя ты получишь два тега: [VIEW_WINDOW: <описание>] и [VIEW_DOOR: <описание>]. Это высший приоритет. Ты ДОЛЖЕН использовать текст из этих тегов для генерации вида из окна и за дверью соответственно. <описание> может быть как коротким ключом (типа "beach"), так и полноценным описанием. Твоя задача — интегрировать это описание в шаблоны БЛОКА 1.
+
+БЛОК 1: ЗАДАЧА, ГЕОМЕТРИЯ И ЦВЕТНЫЕ ПРОЕМЫ (Высший приоритет)
+
+Инструкция: Начинай промт с прямого приказа о сохранении геометрии. Сразу после этого проанализируй цветные области и сгенерируй команды для их наполнения, используя данные из тегов.
+
+Преамбула (обязательно):
+Maintain precise geometry, proportions, and camera FOV. Create a masterpiece.
+
+Проемы (использовать по наличию цвета):
+
+🚪 Красная область (Дверь) — действуй по одному из двух сценариев:
+
+Сценарий 1: Вся область проема красная. Это означает полностью стеклянную дверь. Используй шаблон, подставив в него описание из тега [VIEW_DOOR: ...]:
+⚡ Generate instead A red area = a photorealistic glass door leading into a [описание из тега VIEW_DOOR], strictly preserving the original doorway frame's geometry.
+
+Сценарий 2: На изображении есть объект "дверь" с материалом из списка, а красная область — лишь его часть. Это означает дверь со стеклянной вставкой. Твоя задача — найти в списке материал двери, и сгенерировать команду по этому шаблону, подставив описание из тега [VIEW_DOOR: ...]:
+⚡ Generate: in the doorway, a [материал двери из списка] door with a transparent glass insert viewing a [описание из тега VIEW_DOOR], strictly preserving the original doorway frame's geometry.
+
+🟦 Синяя область (Панорамное окно):
+⚡ Generate instead A blue area = a panoramic, floor-to-ceiling glass wall viewing a [описание из тега VIEW_WINDOW], strictly preserving the original frame's geometry.
+
+🟩 Зеленая область (Обычное окно):
+⚡ Generate instead A green area = a photorealistic glass window viewing a [описание из тега VIEW_WINDOW], strictly preserving the original window frame's geometry.
+
+БЛОК 2: МАТЕРИАЛЫ (Интеллектуальное редактирование)
+
+Инструкция: Это твоя ключевая задача. Не копируй описание материала слепо. Действуй как редактор:
+1. Проанализируй описание из списка клиента.
+2. Извлеки только ключевые физические характеристики: тип материала, цвет, текстуру, рисунок волокон (зерно).
+3. Удали всю субъективную, "маркетинговую" информацию (создает уют, долговечный вид, стильный).
+4. Упрости формулировки, убирая очевидные слова (деревянная панель из акации → панель из акации).
+5. Сгруппируй объекты с одинаковым финальным описанием.
+6. Используй слово “generate:” в начале строки для группы материалов.
+
+Пример того, что ты должен сгенерить: generate: Walls, columns, niche: hardwood board, rich brown, smooth polished surface, intricate wood grain. generate: Ceiling: walnut board, deep chocolate-brown, smooth texture. generate: Benches: chestnut board, light-brown, open rustic grain.
+
+БЛОК 3: СВЕТ (Логический выбор)
+
+Инструкция: Не используй условных операторов (if) в итоговом промте. Посмотри на входное изображение. Сам прими решение, какой шаблон света использовать.
+
+Сценарий 1: НЕТ ОКОН (на картинке нет синих или зеленых областей).
+Используй этот шаблон: The lighting is warm and soft with physically correct shadows, simulating high-quality interior fixtures.
+
+Сценарий 2: ЕСТЬ ОКНО (на картинке есть синяя или зеленая область).
+Используй этот шаблон: The lighting is predominantly natural daylight from the window, soft with physically correct shadows.
+
+БЛОК 4: ФИНАЛЬНОЕ КАЧЕСТВО (Арт-директива)
+
+Инструкция: Заверши промт мощной, финальной командой. Это не просто шаблон, а приказ, задающий планку качества всей сцене.
+Elevate the entire image to the quality of an architectural magazine cover, focusing on photorealistic lighting and textures..
 
 '.`,
-  temperature: 1.0,
-  topP: 1,
-  maxCompletionTokens: 2000,
+  temperature: 1.0,
+  topP: 1,
+  maxCompletionTokens: 2000,
 };
 
 const initialLlmSettingsByModel: { [key in Model]?: Partial<LlmSettings> } = {
-  gemini: { ...defaultLlmSettings },
-  qwen: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ QWEN" },
-  flux: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ FLUX" },
-  seedream: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ SEEDREAM" },
+  gemini: { ...defaultLlmSettings },
+  qwen: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ QWEN" },
+  flux: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ FLUX" },
+  seedream: { ...defaultLlmSettings, systemPrompt: "СИСТЕМНЫЙ ПРОМТ ДЛЯ SEEDREAM" },
 };
 
 const MAX_FILE_SIZE_MB = 10;
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export function useImageWorkspace() {
-  // --- Состояния (State) ---
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [rawPrompt, setRawPrompt] = useState("");
-  const [isRefining, setIsRefining] = useState(false);
-  const [refineError, setRefineError] = useState<string | null>(null);
-  const [sendImageToLlm, setSendImageToLlm] = useState(true);
-  const [showRefiner, setShowRefiner] = useState(false);
-  const [llmSettingsByModel, setLlmSettingsByModel] = useState(initialLlmSettingsByModel);
+  // --- Состояния (State) ---
+
+  // Глобальный режим и дерево историй
+  const [activeTab, setActiveTab] = useState<'BASE' | 'PRO'>('BASE');
+  const [baseResults, setBaseResults] = useState<GenerationNode[]>([]);
+  const [selectedBaseResultUrl, setSelectedBaseResultUrl] = useState<string | null>(null);
+  
+  // <<< ИЗМЕНЕНО: Старую историю заменяем на воркспейсы
+  const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null); // <<< Отдельно храним активный узел в дереве
+
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+
+  const [prompt, setPrompt] = useState("");
+  const [rawPrompt, setRawPrompt] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const [sendImageToLlm, setSendImageToLlm] = useState(true);
+  const [showRefiner, setShowRefiner] = useState(false);
+  const [llmSettingsByModel, setLlmSettingsByModel] = useState(initialLlmSettingsByModel);
   const [negativePrompt, setNegativePrompt] = useState("blurry, ugly, deformed, text, watermark");
-  const [showNeg, setShowNeg] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<Model>("flux");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [imageInfo, setImageInfo] = useState<{ w: number; h: number } | null>(null);
-  const [tab, setTab] = useState<"source" | "result" | "compare">("source");
-  const [comparePos, setComparePos] = useState(50);
-  const [seedLock, setSeedLock] = useState(false);
-  const [qwenSettings, setQwenSettings] = useState<QwenSettings>({ guidance_scale: 4, num_inference_steps: 30, seed: 0 });
-  const [fluxSettings, setFluxSettings] = useState<FluxSettings>({ guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
-  const [seedreamSettings, setSeedreamSettings] = useState<SeedreamSettings>({ seed: 0, width: 1024, height: 1024 });
-  const [seedreamTargetSize, setSeedreamTargetSize] = useState<1024 | 1280 | 'original'>(1024);
+  const [showNeg, setShowNeg] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<Model>("qwen"); // по умолчанию Qwen для первого такта
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [imageInfo, setImageInfo] = useState<{ w: number; h: number } | null>(null);
+  const [tab, setTab] = useState<"source" | "result" | "compare">("source");
+  const [comparePos, setComparePos] = useState(50);
+  const [seedLock, setSeedLock] = useState(false);
+  const [qwenSettings, setQwenSettings] = useState<QwenSettings>({ guidance_scale: 4, num_inference_steps: 30, seed: 0 });
+  const [fluxSettings, setFluxSettings] = useState<FluxSettings>({ guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+  const [seedreamSettings, setSeedreamSettings] = useState<SeedreamSettings>({ seed: 0, width: 1024, height: 1024 });
+  const [seedreamTargetSize, setSeedreamTargetSize] = useState<1024 | 1280 | 'original'>(1024);
+  const [windowView, setWindowView] = useState("a dense Scandinavian forest");
+  const [doorView, setDoorView] = useState("a cozy antechamber (changing room)");
 
-  // <<< НОВОЕ: Состояния для режима детализации
-  const [results, setResults] = useState<string[]>([]);
-  const [isDetailingMode, setIsDetailingMode] = useState(false);
-  
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const dropRef = useRef<HTMLLabelElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const dropRef = useRef<HTMLLabelElement>(null);
 
-  const [jsonContent, setJsonContent] = useState<string | null>(null);
-  const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
-  const [jsonError, setJsonError] = useState<string | null>(null);
-  const [promptTokenCount, setPromptTokenCount] = useState(0);
-  const [negativeTokenCount, setNegativeTokenCount] = useState(0);
-  const [seedreamSizeWarning, setSeedreamSizeWarning] = useState<string | null>(null);
-  
-  // --- Эффекты (Effects) ---
+  const [jsonContent, setJsonContent] = useState<string | null>(null);
+  const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [promptTokenCount, setPromptTokenCount] = useState(0);
+  const [negativeTokenCount, setNegativeTokenCount] = useState(0);
+  const [seedreamSizeWarning, setSeedreamSizeWarning] = useState<string | null>(null);
 
-  // Загрузка состояния из localStorage при первом рендере
-  useEffect(() => {
-    const p = loadPersist();
-    if (!p) return;
+  // --- Вычисляемые значения ---
 
-    setPrompt(p.prompt ?? "");
-    setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
-    setSelectedModel(p.selectedModel ?? "flux");
-    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
-    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
-    const loadedSeedream = p.seedreamSettings || {};
-    setSeedreamSettings(prev => ({ ...{ seed: 0, width: 1024, height: 1024 }, ...loadedSeedream }));
-    if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
-    if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
-    if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
-    if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
-    if (typeof p.seedLock === "boolean") setSeedLock(p.seedLock);
-    if (p.tab) setTab(p.tab);
-    if (typeof p.comparePos === "number") setComparePos(p.comparePos);
-    if (p.seedreamTargetSize) setSeedreamTargetSize(p.seedreamTargetSize);
-  }, []);
+  const activeHistory = useMemo(() => {
+    if (!activeWorkspaceId) return [];
+    return workspaces[activeWorkspaceId] ?? [];
+  }, [workspaces, activeWorkspaceId]);
 
-  // Сохранение состояния в localStorage при изменении
-  useEffect(() => {
-    savePersist({
-      prompt,
-      negativePrompt,
-      selectedModel,
-      qwenSettings,
-      fluxSettings,
-      seedreamSettings,
-      llmSettingsByModel,
-      sendImageToLlm,
-      showRefiner,
-      showNeg,
-      seedLock,
-      tab,
-      comparePos,
-      seedreamTargetSize,
-    });
-  }, [
-    prompt,
-    negativePrompt,
-    selectedModel,
-    qwenSettings,
-    fluxSettings,
-    seedreamSettings,
-    llmSettingsByModel,
-    sendImageToLlm,
-    showRefiner,
-    showNeg,
-    seedLock,
-    tab,
-    comparePos,
-    seedreamTargetSize,
-  ]);
-  
-  useEffect(() => {
-    // Эта функция очистки сработает только перед тем,
-    // как sourceUrl будет изменен на новый, или при размонтировании.
-    return () => {
-      if (sourceUrl && sourceUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(sourceUrl);
-      }
-    };
-  }, [sourceUrl]); // <-- Зависимость ТОЛЬКО от sourceUrl
+  const activeNode = useMemo(() => {
+    if (!activeNodeId) return null;
+    return activeHistory.find(node => node.id === activeNodeId) ?? null;
+  }, [activeNodeId, activeHistory]);
 
-  // Эффект №2: Чистит URL галереи только один раз при размонтировании компонента.
-  useEffect(() => {
-    return () => {
-      // Это нужно, если мы решим делать превьюшки через blob,
-      // для обычных URL это не сработает, но пусть будет на будущее.
-      results.forEach(url => {
-        if (url.startsWith("blob:")) {
-          URL.revokeObjectURL(url);
-        }
-      });
-    };
-  }, []); // <-- Пустой массив зависимостей = сработает 1 раз при unmount.
-  
-  // Обработчик вставки из буфера обмена
-  useEffect(() => {
-    const handler = (ev: ClipboardEvent) => onPaste(ev);
-    window.addEventListener("paste", handler);
-    return () => window.removeEventListener("paste", handler);
-  }, []);
+  const isReadyToGenerate = useMemo(() => {
+    if (activeTab === 'BASE') {
+      return !!sourceFile && !!(prompt || "").trim() && !isLoading;
+    }
+    // в PRO-режиме готовность такая же, как и раньше
+    return !!activeNode && !!(prompt || "").trim() && !isLoading;
+  }, [activeTab, sourceFile, activeNode, prompt, isLoading]);
 
-  useEffect(() => {
-    setPromptTokenCount(encode(prompt).length);
-    setNegativeTokenCount(encode(negativePrompt).length);
-  }, [prompt, negativePrompt]);
-// --- Эффект для предупреждения о размере Seedream ---
-  useEffect(() => {
-    if (selectedModel !== 'seedream' || !imageInfo || seedreamTargetSize === 'original') {
-      setSeedreamSizeWarning(null);
-      return;
-    }
+  // --- Обработчики и логика (ПЕРЕМЕЩЕННЫЙ БЛОК ФУНКЦИЙ) ---
+  
+  const fail = useCallback((msg: string) => {
+    setError(msg);
+    setIsLoading(false);
+  }, []);
 
-    const { w: originalWidth, h: originalHeight } = imageInfo;
-    const ratio = originalWidth / originalHeight;
-    let targetWidth: number;
-    let targetHeight: number;
+  const handleFileSelect = useCallback(async (file: File) => {
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      return fail(`Размер файла не должен превышать ${MAX_FILE_SIZE_MB} MB.`);
+    }
+    if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+      return fail("Неверный тип файла. Используйте PNG, JPEG или WebP.");
+    }
+    setError(null);
+    setTab("source");
+    setActiveNodeId(null);
+    setBaseResults([]);
+    setSelectedBaseResultUrl(null);
+    setActiveTab("BASE");
+    setSeedreamSizeWarning(null);
+    setSourceFile(file);
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    const url = URL.createObjectURL(file);
+    setSourceUrl(url);
+    try {
+      const dims = await readImageDims(file);
+      setImageInfo(dims);
+    } catch {
+      setImageInfo(null);
+    }
+  }, [sourceUrl, fail]);
+  
+  const onPaste = useCallback(async (e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.startsWith("image/")) {
+        const file = it.getAsFile();
+        if (file) {
+          await handleFileSelect(file);
+          break;
+        }
+      }
+    }
+  }, [handleFileSelect]);
 
-    if (originalWidth >= originalHeight) {
-      targetWidth = seedreamTargetSize;
-      targetHeight = Math.round(targetWidth / ratio);
-    } else {
-      targetHeight = seedreamTargetSize;
-      targetWidth = Math.round(targetHeight * ratio);
-    }
+  // --- Эффекты (Effects) ---
 
-    if (targetWidth < 1024 || targetHeight < 1024) {
-      const minSide = Math.min(targetWidth, targetHeight);
-      const scaleFactor = 1024 / minSide;
-      const finalWidth = Math.round(targetWidth * scaleFactor);
-      const finalHeight = Math.round(targetHeight * scaleFactor);
-      
-      setSeedreamSizeWarning(`Внимание: Запрошенный размер слишком мал. Результат будет увеличен до ${finalWidth}x${finalHeight}px.`);
-    } else {
-      setSeedreamSizeWarning(null);
-    }
-  }, [selectedModel, imageInfo, seedreamTargetSize]);
+  // Загрузка состояния из localStorage
+  useEffect(() => {
+    const p = loadPersist();
+    if (!p) return;
 
-  // --- Обработчики и логика ---
+    // Новые состояния
+    
+    setBaseResults(p.baseResults ?? []);
+    setActiveTab(p.activeTab ?? 'BASE');
+    setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
 
-  const handleQwenChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
-  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
-  const handleSeedreamChange = (e: ChangeEvent<HTMLInputElement>) => { 
-    setSeedreamSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
-  };
-  
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (e.target as HTMLElement).tagName !== "TEXTAREA")) {
-      e.preventDefault();
-      onGenerate();
-    }
-    if (e.key === "Escape") {
-      if (isLoading) onCancel();
-    }
-  };
+    // Старые поля
+    setPrompt(p.prompt ?? "");
+    setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
+    setSelectedModel(p.selectedModel ?? "qwen");
+    setQwenSettings(p.qwenSettings ?? { guidance_scale: 4, num_inference_steps: 30, seed: 0 });
+    setFluxSettings(p.fluxSettings ?? { guidance_scale: 3.5, safety_tolerance: 2, seed: 0 });
+    const defaults = { seed: 0, width: 1024, height: 1024 };
+    setSeedreamSettings({ ...defaults, ...(p.seedreamSettings || {}) });
+    if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
+    if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
+    if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
+    if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
+    if (typeof p.seedLock === "boolean") setSeedLock(p.seedLock);
+    if (p.tab) setTab(p.tab);
+    if (typeof p.comparePos === "number") setComparePos(p.comparePos);
+    if (p.seedreamTargetSize) setSeedreamTargetSize(p.seedreamTargetSize);
+  }, []);
 
-  const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    const parsedValue = type === 'number' ? parseFloat(value) : value;
+  // Сохранение состояния в localStorage
+useEffect(() => {
+  savePersist({
+    prompt,
+    negativePrompt,
+    selectedModel,
+    qwenSettings,
+    fluxSettings,
+    seedreamSettings,
+    llmSettingsByModel,
+    sendImageToLlm,
+    showRefiner,
+    showNeg,
+    seedLock,
+    tab,
+    comparePos,
+    seedreamTargetSize, // <<< Добавили недостающее поле
+    activeTab,
+    baseResults,
+    selectedBaseResultUrl,
+    workspaces,
+    activeWorkspaceId,
+  });
+}, [
+  prompt,
+  negativePrompt,
+  selectedModel,
+  qwenSettings,
+  fluxSettings,
+  seedreamSettings,
+  llmSettingsByModel,
+  sendImageToLlm,
+  showRefiner,
+  showNeg,
+  seedLock,
+  tab,
+  comparePos,
+  seedreamTargetSize, // <<< Добавили зависимость
+  baseResults,
+  activeTab,
+  selectedBaseResultUrl,
+  workspaces,
+  activeWorkspaceId,
+]);
 
-    setLlmSettingsByModel(prev => {
-      const currentModelSettings = prev[selectedModel] ?? {};
-      return {
-        ...prev,
-        [selectedModel]: {
-          ...currentModelSettings,
-          [name]: parsedValue,
-        },
-      };
-    });
-  };
-  
-  const onRefinePrompt = async () => {
-    if (!rawPrompt.trim()) return;
-    setIsRefining(true);
-    setRefineError(null);
-    abortControllerRef.current = new AbortController();
+  // Чистка blob URL исходника
+  useEffect(() => {
+    return () => {
+      if (sourceUrl && sourceUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(sourceUrl);
+      }
+    };
+  }, [sourceUrl]);
 
-    function arrayBufferToBase64(buffer: ArrayBuffer): string {
-      let binary = "";
-      const bytes = new Uint8Array(buffer);
-      const chunkSize = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, i + chunkSize);
-        binary += String.fromCharCode.apply(null, Array.from(chunk));
-      }
-      return btoa(binary);
-    }
+  // Обработчик вставки из буфера обмена (ТЕПЕРЬ `onPaste` ПЕРЕД НИМ ОБЪЯВЛЕН)
+  useEffect(() => {
+    const handler = (ev: ClipboardEvent) => onPaste(ev);
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [onPaste]);
 
-    let base64Image: string | undefined = undefined;
-    if (sendImageToLlm && sourceFile) {
-      const buffer = await sourceFile.arrayBuffer();
-      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
-    }
+  useEffect(() => {
+    setPromptTokenCount(encode(prompt || "").length);
+    setNegativeTokenCount(encode(negativePrompt || "").length);
+  }, [prompt, negativePrompt]);
 
-    const activeSettings = { ...defaultLlmSettings, ...llmSettingsByModel[selectedModel] };
-    const payload = {
-      prompt: rawPrompt,
+  // Предупреждение о размере Seedream
+  useEffect(() => {
+    if (selectedModel !== 'seedream' || !imageInfo || seedreamTargetSize === 'original') {
+      setSeedreamSizeWarning(null);
+      return;
+    }
+
+    const { w: originalWidth, h: originalHeight } = imageInfo;
+    const ratio = originalWidth / originalHeight;
+    let targetWidth: number;
+    let targetHeight: number;
+
+    if (originalWidth >= originalHeight) {
+      targetWidth = seedreamTargetSize;
+      targetHeight = Math.round(targetWidth / ratio);
+    } else {
+      targetHeight = seedreamTargetSize;
+      targetWidth = Math.round(targetHeight * ratio);
+    }
+
+    if (targetWidth < 1024 || targetHeight < 1024) {
+      const minSide = Math.min(targetWidth, targetHeight);
+      const scaleFactor = 1024 / minSide;
+      const finalWidth = Math.round(targetWidth * scaleFactor);
+      const finalHeight = Math.round(targetHeight * scaleFactor);
+      setSeedreamSizeWarning(`Внимание: Запрошенный размер слишком мал. Результат будет увеличен до ${finalWidth}x${finalHeight}px.`);
+    } else {
+      setSeedreamSizeWarning(null);
+    }
+  }, [selectedModel, imageInfo, seedreamTargetSize]);
+
+  // --- Обработчики и логика (ПРОДОЛЖЕНИЕ) ---
+
+  const handleQwenChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setQwenSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+  const handleFluxChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFluxSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+  const handleSeedreamChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setSeedreamSettings((p) => ({ ...p, [e.target.name]: Number(e.target.value) }));
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (e.target as HTMLElement).tagName !== "TEXTAREA")) {
+      e.preventDefault();
+      onGenerate();
+    }
+    if (e.key === "Escape") {
+      if (isLoading) onCancel();
+    }
+  };
+
+  const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
+    const parsedValue = type === 'number' ? parseFloat(value) : value;
+
+    setLlmSettingsByModel(prev => {
+      const currentModelSettings = prev[selectedModel] ?? {};
+      return {
+        ...prev,
+        [selectedModel]: {
+          ...currentModelSettings,
+          [name]: parsedValue,
+        },
+      };
+    });
+  };
+
+  const onRefinePrompt = async () => {
+    if (!rawPrompt.trim()) return;
+    setIsRefining(true);
+    setRefineError(null);
+    abortControllerRef.current = new AbortController();
+
+    function arrayBufferToBase64(buffer: ArrayBuffer): string {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      return btoa(binary);
+    }
+
+    let base64Image: string | undefined = undefined;
+    if (sendImageToLlm && sourceFile) {
+      const buffer = await sourceFile.arrayBuffer();
+      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
+    }
+
+    const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
+
+    const activeSettings = { ...defaultLlmSettings, ...llmSettingsByModel[selectedModel] };
+    const payload = {
+      prompt: finalRawPrompt,
       model: activeSettings.model,
       system: activeSettings.systemPrompt,
       temperature: activeSettings.temperature,
@@ -2037,227 +2405,217 @@ export function useImageWorkspace() {
       ...(base64Image ? { image: base64Image } : {}),
     };
 
-    try {
-      const response = await fetch("/api/refine-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: abortControllerRef.current.signal,
-      });
+    try {
+      const response = await fetch("/api/refine-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal,
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Неизвестная ошибка API");
-      }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Неизвестная ошибка API");
+      }
 
-      const data = await response.json();
-      setPrompt(data.refinedPrompt);
-      setShowRefiner(false);
-    } catch (e: unknown) {
-      if (e instanceof Error) {
-        if (e.name === "AbortError") setRefineError("Улучшение отменено.");
-        else setRefineError(e.message);
-      } else {
-        setRefineError("Произошла неизвестная ошибка.");
-      }
-    } finally {
-      setIsRefining(false);
-    }
-  };
+      const data = await response.json();
+      setPrompt(data.refinedPrompt);
+      setShowRefiner(false);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setRefineError("Улучшение отменено.");
+        else setRefineError(e.message);
+      } else {
+        setRefineError("Произошла неизвестная ошибка.");
+      }
+    } finally {
+      setIsRefining(false);
+    }
+  };
 
-  const isReadyToGenerate = useMemo(() => !!sourceFile && !!prompt.trim() && !isLoading, [sourceFile, prompt, isLoading]);
+  const handleJsonFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        if (typeof event.target?.result !== 'string') {
+          throw new Error("Не удалось прочитать файл.");
+        }
+        const parsed = JSON.parse(event.target.result);
+        setJsonContent(JSON.stringify(parsed, null, 2));
+        setJsonError(null);
+        setIsJsonViewerOpen(true);
+      } catch (e) {
+        setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
+        setJsonContent(null);
+      }
+    };
+    reader.onerror = () => {
+      setJsonError("Не удалось прочитать файл.");
+      setJsonContent(null);
+    };
+    reader.readAsText(file);
+  };
 
-  const fail = (msg: string) => {
-    setError(msg);
-    setIsLoading(false);
-  };
+  const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type === "application/json") {
+      handleJsonFile(file);
+    } else if (file) {
+      setJsonError("Неверный тип файла. Нужен JSON.");
+    }
+    e.target.value = "";
+  };
 
-  // <<< ИЗМЕНЕНО: handleFileSelect теперь сбрасывает режим детализации
-  const handleFileSelect = async (file: File) => {
-    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) return fail(`Размер файла не должен превышать ${MAX_FILE_SIZE_MB} MB.`);
-    if (!ACCEPTED_FILE_TYPES.includes(file.type)) return fail("Неверный тип файла. Используйте PNG, JPEG или WebP.");
-    
-    setError(null);
-    setResultUrl(null);
-    setTab("source");
-    
-    // <<< Сброс состояния галереи и режима при загрузке нового файла
-    setResults([]);
-    setIsDetailingMode(false);
-    setSeedreamSizeWarning(null);
-    
+  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileSelect(file);
+    e.target.value = ""; // Очищаем инпут, чтобы можно было выбрать тот же файл повторно
+  };
 
-    setSourceFile(file);
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    const url = URL.createObjectURL(file);
-    setSourceUrl(url);
+  const onDrop = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileSelect(file);
+  };
 
-    try {
-      const dims = await readImageDims(file);
-      setImageInfo(dims);
-    } catch {
-      setImageInfo(null);
-    }
-  };
-  
-  const handleJsonFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        if (typeof event.target?.result !== 'string') {
-          throw new Error("Не удалось прочитать файл.");
-        }
-        const parsed = JSON.parse(event.target.result);
-        setJsonContent(JSON.stringify(parsed, null, 2)); 
-        setJsonError(null);
-        setIsJsonViewerOpen(true);
-      } catch (e) {
-        setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
-        setJsonContent(null);
-      }
-    };
-    reader.onerror = () => {
-      setJsonError("Не удалось прочитать файл.");
-      setJsonContent(null);
-    };
-    reader.readAsText(file);
-  };
+ // Полный сброс
+    const onClear = () => {
+      // Сброс ошибок и источника
+      setError(null);
+      setSourceFile(null);
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      setSourceUrl(null);
+      setImageInfo(null);
 
-  const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type === "application/json") {
-      handleJsonFile(file);
-    } else if (file) {
-      setJsonError("Неверный тип файла. Нужен JSON.");
-    }
-    e.target.value = "";
-  };
+      // Сброс флагов/мелочей
+      setSeedLock(false);
+      setShowRefiner(false);
+      setShowNeg(false);
+      setSeedreamSizeWarning(null);
 
-  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFileSelect(file);
-    e.target.value = "";
-  };
-  
-  const onDrop = (e: DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFileSelect(file);
-  };
-  
-  const onPaste = async (e: ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const it of items) {
-      if (it.type.startsWith("image/")) {
-        const file = it.getAsFile();
-        if (file) {
-          await handleFileSelect(file);
-          break;
-        }
-      }
-    }
-  };
+      // <<< ИЗМЕНЕНО: Полный сброс по новой логике (без appState)
+      
+      setActiveNodeId(null);
+      setBaseResults([]);
+      setSelectedBaseResultUrl(null);
+      setActiveTab("BASE");
 
-  // <<< ИЗМЕНЕНО: onClear теперь тоже сбрасывает галерею и режим
-  const onClear = () => {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    setSourceFile(null);
-    setSourceUrl(null);
-    setResultUrl(null);
-    setError(null);
-    setPrompt("");
-    setImageInfo(null);
-    setTab("source");
-    setShowRefiner(false);
-    setShowNeg(false);
-    setSendImageToLlm(true);
-    setSeedLock(false);
-    setComparePos(50);
-    // <<< Сброс состояния галереи и режима
-    setResults([]);
-    setIsDetailingMode(false);
-    setSeedreamTargetSize(1024);
-    setSeedreamSizeWarning(null);
-  };
+      // возврат на вкладку source (чтобы интерфейс не висел в старом состоянии)
+      setTab("source");
+    };
 
-  const onCancel = () => {
-    abortControllerRef.current?.abort();
-    setIsLoading(false);
-    setError("Генерация отменена.");
-  };
+  const onCancel = () => {
+    abortControllerRef.current?.abort();
+    setIsLoading(false);
+    setError("Генерация отменена.");
+  };
 
-  const randomizeSeed = () => {
-    const seed = Math.floor(Math.random() * 2_147_483_647);
-    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
-    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
-    if (selectedModel === "seedream") setSeedreamSettings((p) => ({...p, seed }));
-  };
-  
-  // <<< НОВОЕ: Функция для выбора результата из галереи как нового исходника
-  const handleSelectResult = async (url: string) => {
-    setIsLoading(true); // Блокируем интерфейс на время подготовки файла
-    setError(null);
-    
-    try {
-      // Скачиваем картинку по URL и превращаем в File
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const file = new File([blob], "generated_source.png", { type: blob.type });
+  const randomizeSeed = () => {
+    const seed = Math.floor(Math.random() * 2_147_483_647);
+    if (selectedModel === "flux") setFluxSettings((p) => ({ ...p, seed }));
+    if (selectedModel === "qwen") setQwenSettings((p) => ({ ...p, seed }));
+    if (selectedModel === "seedream") setSeedreamSettings((p) => ({ ...p, seed }));
+  };
+  // <<< НОВОЕ: Функция для "продвижения" базового результата в PRO
+  // <<< НОВОЕ: Функция для сброса активного воркспейса (возврат в "Прихожую")
+  const handleTabChange = (tab: 'BASE' | 'PRO') => {
+    if (tab === 'PRO') {
+      // "Автопилот": если в PRO еще не работали, но в BASE есть результаты - берем последний
+      if (!activeWorkspaceId && baseResults.length > 0) {
+        const lastBaseResult = baseResults[baseResults.length - 1];
+        handlePromoteToPro(lastBaseResult.id); // Продвигаем его и автоматом переходим на таб
+        return;
+      }
+    }
+    setActiveTab(tab);
+  };
+  const handleChangeSource = () => {
+    setActiveWorkspaceId(null);
+    setActiveNodeId(null);
+  };
 
-      // Обновляем состояния, как будто загрузили новый файл
-      setSourceFile(file);
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-      const newSourceUrl = URL.createObjectURL(file);
-      setSourceUrl(newSourceUrl);
+  // <<< ПЕРЕПИСАНО: Функция продвижения теперь создает или активирует воркспейс
+  const handlePromoteToPro = (nodeId: string) => {
+    const nodeToPromote = baseResults.find(node => node.id === nodeId);
+    if (!nodeToPromote) {
+      fail("Не удалось найти базовый результат для начала работы.");
+      return;
+    }
 
-      setResultUrl(null);
-      
-      const dims = await readImageDims(file);
-      setImageInfo(dims);
-      
-      // Переключаемся в режим детализации и очищаем промпт
-      setIsDetailingMode(true);
-      setPrompt(""); // Очищаем поле для новой, короткой инструкции
-      setTab("source"); // Показываем новый исходник
-      
-    } catch (e) {
-        fail("Не удалось загрузить изображение для доработки.");
-    } finally {
-        setIsLoading(false);
-    }
-  };
-  
-  // <<< ИЗМЕНЕНО: Основная функция генерации теперь учитывает режим
-  const onGenerate = async () => {
-    if (!isReadyToGenerate || !sourceFile) return;
-    setIsLoading(true);
-    setError(null);
-    // Не очищаем resultUrl, чтобы последняя картинка не пропадала во время генерации новой
-    abortControllerRef.current = new AbortController();
+    // Если для этого узла еще нет воркспейса - создаем
+    if (!workspaces[nodeToPromote.id]) {
+      setWorkspaces(prev => ({
+        ...prev,
+        [nodeToPromote.id]: [nodeToPromote] // История начинается с этого узла
+      }));
+    }
+    
+    // Активируем этот воркспейс и его корневой узел
+    setActiveWorkspaceId(nodeToPromote.id);
+    setActiveNodeId(nodeToPromote.id);
+    setActiveTab('PRO');
+  };
 
-    const formData = new FormData();
-    formData.append("image", sourceFile);
-    formData.append("prompt", prompt);
-    formData.append("negative_prompt", negativePrompt);
-    formData.append("model", selectedModel);
+  // <<< ПЕРЕПИСАНО: Генерация теперь зависит от активной вкладки
+  const onGenerate = async () => {
+    if (!isReadyToGenerate) return;
 
-    let settings: QwenSettings | FluxSettings | SeedreamSettings;
-    switch (selectedModel) {
-      case "qwen":
-        settings = qwenSettings;
-        break;
-      case "seedream": { 
-        let targetWidth = imageInfo!.w;
-        let targetHeight = imageInfo!.h;
-  
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    let currentImageFile: File;
+    let parentId: string | null = null; // Определяем parentId заранее
+
+    // Определяем, с каким изображением работаем
+    if (activeTab === 'BASE') {
+      if (!sourceFile) return fail("Нет исходного файла для базовой генерации.");
+      currentImageFile = sourceFile;
+      parentId = null; // Базовые генерации всегда корневые
+    } else { // PRO
+      if (!activeNode) return fail("Нет активного узла для редактирования в PRO.");
+      parentId = activeNodeId;
+      try {
+// ПАТЧ №1 (переменная НЕ используется) - _e
+        const response = await fetch(activeNode.imageUrl);
+        const blob = await response.blob();
+        currentImageFile = new File([blob], "pro_source.png", { type: blob.type });
+      } catch (_e) {
+        return fail("Не удалось загрузить изображение из активного узла.");
+    }
+    }
+
+    // Получаем размеры источника (важно для seedream)
+    let effectiveImageInfo = imageInfo;
+    try {
+      const dims = await readImageDims(currentImageFile);
+      effectiveImageInfo = dims;
+    } catch {
+      // не критично
+    }
+
+    const formData = new FormData();
+    formData.append("image", currentImageFile);
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", selectedModel);
+
+    // Подбор settings (как раньше)
+    let settings: QwenSettings | FluxSettings | SeedreamSettings;
+    switch (selectedModel) {
+      case "qwen":
+        settings = qwenSettings;
+        break;
+      case "seedream": {
+        const origW = effectiveImageInfo?.w ?? 1024;
+        const origH = effectiveImageInfo?.h ?? 1024;
+        const ratio = origW / origH;
+        let targetWidth = origW;
+        let targetHeight = origH;
+
         if (seedreamTargetSize !== 'original') {
-          const originalWidth = imageInfo!.w;
-          const originalHeight = imageInfo!.h;
-          const ratio = originalWidth / originalHeight;
           const targetSide = seedreamTargetSize;
-  
-          if (originalWidth >= originalHeight) {
+          if (origW >= origH) {
             targetWidth = targetSide;
             targetHeight = Math.round(targetSide / ratio);
           } else {
@@ -2266,124 +2624,170 @@ export function useImageWorkspace() {
           }
         }
 
-        // <<< ФИНАЛЬНАЯ ПРОВЕРКА И АПСКЕЙЛ ПЕРЕД ОТПРАВКОЙ
-        if (targetWidth < 1024 || targetHeight < 1024) {
-            const minSide = Math.min(targetWidth, targetHeight);
-            const scaleFactor = 1024 / minSide;
-            targetWidth = Math.round(targetWidth * scaleFactor);
-            targetHeight = Math.round(targetHeight * scaleFactor);
-        }
-        
+        if (targetWidth < 1024 || targetHeight < 1024) {
+          const minSide = Math.min(targetWidth, targetHeight);
+          const scaleFactor = 1024 / minSide;
+          targetWidth = Math.round(targetWidth * scaleFactor);
+          targetHeight = Math.round(targetHeight * scaleFactor);
+        }
+
         settings = { ...seedreamSettings, width: targetWidth, height: targetHeight };
         break;
       }
-      case "flux":
-      default:
-        settings = fluxSettings;
-        break;
-    }
-    
-    if (!seedLock) {
-      const seed = Math.floor(Math.random() * 2_147_483_647);
-      settings = { ...settings, seed };
-      if (selectedModel === "qwen") setQwenSettings(p => ({ ...p, seed }));
-      if (selectedModel === "seedream") setSeedreamSettings(p => ({ ...p, seed }));
-      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
-    }
+      case "flux":
+      default:
+        settings = fluxSettings;
+        break;
+    }
 
-    formData.append("settings", JSON.stringify(settings));
+    if (!seedLock) {
+      const seed = Math.floor(Math.random() * 2_147_483_647);
+      settings = { ...settings, seed };
+      if (selectedModel === "qwen") setQwenSettings(p => ({ ...p, seed }));
+      if (selectedModel === "seedream") setSeedreamSettings(p => ({ ...p, seed }));
+      if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
+    }
 
-    try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        body: formData,
-        signal: abortControllerRef.current.signal,
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Неизвестная ошибка API");
-      }
-      const data = await response.json();
-      
-      // <<< Обновляем состояния после генерации
-      setResultUrl(data.imageUrl); // Показываем новый результат
-      setResults(prev => [...prev, data.imageUrl]); // Добавляем его в галерею
-      setTab("result");
+    formData.append("settings", JSON.stringify(settings));
 
-    } catch (e: unknown) {
-      if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
-        else setError(e.message);
-      } else {
-        setError("Произошла неизвестная ошибка.");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        body: formData,
+        signal: abortControllerRef.current!.signal,
+      });
 
-  // --- Возвращаем публичный API хука ---
-  return {
-    jsonContent,
-    isJsonViewerOpen,
-    setIsJsonViewerOpen,
-    jsonError,
-    onJsonFileChange,
-    sourceFile,
-    sourceUrl,
-    resultUrl,
-    prompt,
-    setPrompt,
-    rawPrompt,
-    setRawPrompt,
-    isRefining,
-    refineError,
-    sendImageToLlm,
-    setSendImageToLlm,
-    showRefiner,
-    setShowRefiner,
-     llmSettingsByModel,
-    handleLlmSettingsChange,
-    negativePrompt,
-    setNegativePrompt,
-    showNeg,
-    setShowNeg,
-    selectedModel,
-    setSelectedModel,
-    isLoading,
-    error,
-    imageInfo,
-    tab,
-    setTab,
-    comparePos,
-    setComparePos,
-    seedLock,
-    setSeedLock,
-    qwenSettings,
-    handleQwenChange,
-    fluxSettings,
-    handleFluxChange,
-    seedreamSettings,
-    handleSeedreamChange,
-    dropRef,
-    onKeyDown,
-    onRefinePrompt,
-    isReadyToGenerate,
-    onFileChange,
-    onDrop,
-    onClear,
-    onCancel,
-    randomizeSeed,
-    onGenerate,
-    results,
-    isDetailingMode,
-    handleSelectResult,
-    promptTokenCount,
-    negativeTokenCount,
-    seedreamTargetSize,
-    setSeedreamTargetSize,
-    seedreamSizeWarning,
-  };
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Неизвестная ошибка API");
+      }
+      const data = await response.json();
+      
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId, // Используем заранее определенный parentId
+        imageUrl: data.imageUrl,
+        prompt,
+        negativePrompt,
+        model: selectedModel,
+        settings,
+      };
+
+      if (activeTab === 'BASE') {
+        setBaseResults(prev => [...prev, newNode]);
+        setSelectedBaseResultUrl(newNode.imageUrl);
+      } else { // PRO
+        if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса для добавления узла.");
+        
+        // Добавляем новый узел в правильный воркспейс
+        setWorkspaces(prev => ({
+          ...prev,
+          [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode]
+        }));
+        setActiveNodeId(newNode.id);
+      }
+
+    } catch (e: unknown) {
+// ПАТЧ №2 (переменная ИСПОЛЬЗУЕТСЯ) - e
+      if (e instanceof Error) {
+    if (e.name === "AbortError") setError("Генерация отменена.");
+    else setError(e.message);
+  } else {
+    setError("Неизвестная ошибка при генерации");
+  }
+} finally {
+  setIsLoading(false);
+}
+
+  };
+
+  // --- Возвращаем публичный API хука ---
+  return {
+    // Новая архитектура
+    activeTab,
+    handleTabChange,
+    handleChangeSource,
+    baseResults,
+    selectedBaseResultUrl,
+    setSelectedBaseResultUrl,
+    handlePromoteToPro,
+    activeHistory,
+    activeNode,
+    activeNodeId,
+    setActiveNodeId,
+    comparePos,
+    setComparePos,
+
+    // Состояния и управление
+    sourceFile,
+    sourceUrl,
+    imageInfo,
+    isLoading,
+    error,
+    isReadyToGenerate,
+
+    // Промпты
+    prompt,
+    setPrompt,
+    rawPrompt,
+    setRawPrompt,
+    negativePrompt,
+    setNegativePrompt,
+    promptTokenCount,
+    negativeTokenCount,
+
+    // Выбор модели
+    selectedModel,
+    setSelectedModel,
+
+    // Настройки моделей
+    qwenSettings,
+    handleQwenChange,
+    fluxSettings,
+    handleFluxChange,
+    seedreamSettings,
+    handleSeedreamChange,
+    seedreamTargetSize,
+    setSeedreamTargetSize,
+    seedreamSizeWarning,
+    seedLock,
+    setSeedLock,
+    randomizeSeed,
+    
+    // Промпт-инженер (LLM)
+    isRefining,
+    refineError,
+    onRefinePrompt,
+    sendImageToLlm,
+    setSendImageToLlm,
+    llmSettingsByModel,
+    handleLlmSettingsChange,
+
+    // Управление UI
+    showRefiner,
+    setShowRefiner,
+    showNeg,
+    setShowNeg,
+    dropRef,
+    windowView,
+    setWindowView,
+    doorView,
+    setDoorView,
+    jsonContent,
+    isJsonViewerOpen,
+    setIsJsonViewerOpen,
+    jsonError,
+    onJsonFileChange,
+    
+    // Функции-действия
+    onGenerate,
+    onClear,
+    onCancel,
+    onFileChange,
+    onDrop,
+    onKeyDown,
+    onPaste,
+  };
 }
 ```
 
@@ -2393,7 +2797,6 @@ export function useImageWorkspace() {
 
 ```typescript
 // src/lib/types.ts
-
 export type Model = "gemini" | "qwen" | "flux" | "seedream";
 
 export const MAX_FILE_SIZE_MB = 10;
@@ -2416,6 +2819,18 @@ export type LlmSettings = {
   maxCompletionTokens: number;
 };
 
+// <<< НОВОЕ: Тип для узла в дереве генераций
+export type GenerationNode = {
+  id: string; // Уникальный ID
+  parentId: string | null; // ID родителя, null для корневого
+  imageUrl: string; // URL изображения
+  // Метаданные для восстановления контекста
+  prompt: string;
+  negativePrompt: string;
+  model: Model;
+  settings: object; // Настройки, с которыми была генерация
+};
+
 export type PersistState = {
   prompt: string;
   negativePrompt: string;
@@ -2428,8 +2843,16 @@ export type PersistState = {
   showRefiner: boolean;
   showNeg: boolean;
   seedLock: boolean;
-  tab: "source" | "result" | "compare";
+  tab: "source" | "result" | "compare"; // <<< Это старое поле, его можно будет потом убрать, но пока оставим
   comparePos: number;
+  seedreamTargetSize: 1024 | 1280 | 'original'; // <<< ВОТ ЧЕГО НЕ ХВАТАЛО
+
+  // Новая структура
+  activeTab: 'BASE' | 'PRO';
+  baseResults: GenerationNode[];
+  selectedBaseResultUrl: string | null;
+  workspaces: { [rootNodeId: string]: GenerationNode[] };
+  activeWorkspaceId: string | null;
 };
 ```
 

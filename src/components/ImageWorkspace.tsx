@@ -7,34 +7,19 @@ import { Sidebar } from "./workspace/Sidebar";
 import { Canvas } from "./workspace/Canvas";
 
 export default function ImageWorkspace() {
-  // Вся сложность спрятана здесь. Мы получаем готовый 'контракт'.
   const workspaceState = useImageWorkspace();
 
   return (
     <div
-      className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6"
+      className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 focus:outline-none"
       onKeyDown={workspaceState.onKeyDown}
-      tabIndex={0}
+      tabIndex={-1}
     >
-      {/* Передаем весь набор состояний и функций в сайдбар.
-        Ему не нужно знать, откуда они берутся.
-      */}
+      {/* <<< ПЕРЕДАЕМ ОБНОВЛЕННЫЕ ПРОПСЫ В SIDEBAR */}
       <Sidebar {...workspaceState} />
 
-      {/* Передаем только то, что нужно для отображения.
-      */}
-      <Canvas
-        isLoading={workspaceState.isLoading}
-        resultUrl={workspaceState.resultUrl}
-        sourceUrl={workspaceState.sourceUrl}
-        sourceFile={workspaceState.sourceFile}
-        tab={workspaceState.tab}
-        setTab={workspaceState.setTab}
-        comparePos={workspaceState.comparePos}
-        setComparePos={workspaceState.setComparePos}
-        results={workspaceState.results}
-        handleSelectResult={workspaceState.handleSelectResult}
-      />
+      {/* <<< ПЕРЕДАЕМ ОБНОВЛЕННЫЕ ПРОПСЫ В CANVAS (без урезаний) */}
+      <Canvas {...workspaceState} />
     </div>
   );
 }

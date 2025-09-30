@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // <<< ДОБАВЛЯЕМ ЭТОТ БЛОК
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "fal.run",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

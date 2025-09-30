@@ -1,5 +1,4 @@
 // src/lib/types.ts
-
 export type Model = "gemini" | "qwen" | "flux" | "seedream";
 
 export const MAX_FILE_SIZE_MB = 10;
@@ -22,6 +21,18 @@ export type LlmSettings = {
   maxCompletionTokens: number;
 };
 
+// <<< НОВОЕ: Тип для узла в дереве генераций
+export type GenerationNode = {
+  id: string; // Уникальный ID
+  parentId: string | null; // ID родителя, null для корневого
+  imageUrl: string; // URL изображения
+  // Метаданные для восстановления контекста
+  prompt: string;
+  negativePrompt: string;
+  model: Model;
+  settings: object; // Настройки, с которыми была генерация
+};
+
 export type PersistState = {
   prompt: string;
   negativePrompt: string;
@@ -34,6 +45,14 @@ export type PersistState = {
   showRefiner: boolean;
   showNeg: boolean;
   seedLock: boolean;
-  tab: "source" | "result" | "compare";
+  tab: "source" | "result" | "compare"; // <<< Это старое поле, его можно будет потом убрать, но пока оставим
   comparePos: number;
+  seedreamTargetSize: 1024 | 1280 | 'original'; // <<< ВОТ ЧЕГО НЕ ХВАТАЛО
+
+  // Новая структура
+  activeTab: 'BASE' | 'PRO';
+  baseResults: GenerationNode[];
+  selectedBaseResultUrl: string | null;
+  workspaces: { [rootNodeId: string]: GenerationNode[] };
+  activeWorkspaceId: string | null;
 };

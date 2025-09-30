@@ -1,5 +1,4 @@
 // src/components/workspace/Sidebar.tsx
-
 import React, { ChangeEvent, DragEvent, RefObject } from "react";
 import { cx } from "@/lib/utils";
 import {
@@ -8,27 +7,32 @@ import {
   LlmSettings,
   MAX_FILE_SIZE_MB,
   Model,
+  GenerationNode,
   QwenSettings,
   SeedreamSettings,
 } from "@/lib/types";
 import { Label, Slider } from "@/components/ui/FormControls";
 
-// Определяем все пропсы, которые понадобятся этому компоненту
 interface SidebarProps {
+  activeTab: 'BASE' | 'PRO';
+  handleTabChange: (tab: 'BASE' | 'PRO') => void;
+  handleChangeSource: () => void;
+  activeHistory: GenerationNode[];
+
   imageInfo: { w: number; h: number } | null;
   sourceFile: File | null;
-  dropRef: RefObject<HTMLLabelElement>;
+  dropRef: RefObject<HTMLLabelElement | null>;
   onDrop: (e: DragEvent<HTMLLabelElement>) => void;
   onFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
   showRefiner: boolean;
   setShowRefiner: (value: React.SetStateAction<boolean>) => void;
   rawPrompt: string;
-  setRawPrompt: (value: string) => void;
-  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> }; // <<< ИЗМЕНЕНО
-  handleLlmSettingsChange: (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => void;
-  sendImageToLlm: boolean;
+  setRawPrompt: (value: string) => void;
+  llmSettingsByModel: { [key in Model]?: Partial<LlmSettings> };
+  handleLlmSettingsChange: (
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
+  sendImageToLlm: boolean;
   setSendImageToLlm: (value: boolean) => void;
   onRefinePrompt: () => void;
   isRefining: boolean;
@@ -61,7 +65,6 @@ interface SidebarProps {
   setIsJsonViewerOpen: (value: React.SetStateAction<boolean>) => void;
   jsonError: string | null;
   onJsonFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  isDetailingMode: boolean;
   promptTokenCount: number;
   negativeTokenCount: number;
   seedreamTargetSize: 1024 | 1280 | 'original';
@@ -71,9 +74,15 @@ interface SidebarProps {
   setWindowView: (value: string) => void;
   doorView: string;
   setDoorView: (value: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any; // <<< ИСПРАВЛЕНО (заглушили линтер)
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  handleTabChange,
+  handleChangeSource,
+  activeHistory,
   imageInfo,
   sourceFile,
   dropRef,
@@ -118,7 +127,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsJsonViewerOpen,
   jsonError,
   onJsonFileChange,
-  isDetailingMode,
   promptTokenCount,
   negativeTokenCount,
   seedreamTargetSize,
@@ -140,314 +148,360 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return { ...defaults, ...llmSettingsByModel[selectedModel] };
   }, [llmSettingsByModel, selectedModel]);
 
+  // Универсальный обработчик для селекторов окружения
+  const handleTemplateChange = (e: ChangeEvent<HTMLSelectElement>, setter: (val: string) => void) => {
+    const value = e.target.value;
+    if (value) {
+      setter(value);
+    }
+  };
+
+  const windowTemplates = [
+    { label: 'Лес летний', value: 'a lush green summer forest with sunbeams filtering through the leaves' },
+    { label: 'Лес зимний', value: 'a quiet, snow-covered winter forest with tall pine trees' },
+    { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky' },
+    { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence' },
+    { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow' },
+  ];
+
+  const doorTemplates = [
+    { label: 'Предбанник', value: 'a cozy antechamber (changing room) with wooden benches' },
+    { label: 'Современный коридор', value: 'a modern, minimalist hallway with soft lighting' },
+    { label: 'Раздевалка', value: 'a clean, bright locker room with wooden cabinets' },
+    { label: 'Другая комната', value: 'another sauna room, slightly out of focus' },
+  ];
+
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
-      {/* file */}
-      <div className="space-y-2">
-        <Label
-          title={isDetailingMode ? "Изображение для доработки" : "Исходное изображение"}
-          right={
-            imageInfo && (
-              <span className="text-[10px] text-gray-500">
-                {imageInfo.w}×{imageInfo.h}px
-              </span>
-            )
-          }
-        />
-        <label
-          ref={dropRef}
-          htmlFor="image-upload"
-          onDrop={onDrop}
-          onDragOver={(e) => e.preventDefault()}
-          className={cx(
-            "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
-            "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
-          )}
-          title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
-        >
-          {sourceFile ? (
-            <div className="text-left space-y-1">
-              <p className="text-cyan-400 text-sm font-medium truncate">
-                {sourceFile.name}
-              </p>
-              <p className="text-xs text-gray-500">
-                {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
-                {sourceFile.type.replace("image/", "").toUpperCase()}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <p className="text-sm text-gray-400">
-                Перетащи или нажми, чтобы выбрать
-              </p>
-              <p className="text-xs text-gray-500">
-                PNG, JPEG, WebP • до {MAX_FILE_SIZE_MB}MB • Ctrl+V из буфера
-              </p>
-            </div>
-          )}
-          <input
-            id="image-upload"
-            type="file"
-            className="hidden"
-            accept={ACCEPTED_FILE_TYPES.join(",")}
-            onChange={onFileChange}
-          />
-        </label>
-      </div>
-      
 
-
-      {/* JSON Viewer */}
-      <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+      {/* Переключатель */}
+      <div className="mb-5 bg-gray-900 border border-gray-800 rounded-lg p-1 flex">
         <button
-          type="button"
-          onClick={() => setIsJsonViewerOpen((v) => !v)}
-          className="w-full text-left text-sm font-medium text-yellow-400"
+          onClick={() => handleTabChange('BASE')}
+          className={cx(
+            "w-1/2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors",
+            activeTab === 'BASE'
+              ? "bg-gray-700 text-white"
+              : "text-gray-400 hover:bg-gray-800 hover:text-white"
+          )}
         >
-          {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
+          Стартовая площадка
         </button>
-        {isJsonViewerOpen && (
-          <div className="pt-2 space-y-3">
+        <button
+          onClick={() => handleTabChange('PRO')}
+          className={cx(
+            "w-1/2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors",
+            activeTab === 'PRO'
+              ? "bg-cyan-600 text-white"
+              : "text-gray-400 hover:bg-gray-800 hover:text-white"
+          )}
+        >
+          Мастерская (PRO)
+        </button>
+      </div>
+
+      {/* Контент BASE режима */}
+      {activeTab === 'BASE' && (
+        <div className="space-y-5">
+          {/* file */}
+          <div className="space-y-2">
+            <Label
+              title={"Исходное изображение (скетч)"}
+              right={
+                imageInfo && (
+                  <span className="text-[10px] text-gray-500">
+                    {imageInfo.w}×{imageInfo.h}px
+                  </span>
+                )
+              }
+            />
             <label
-              htmlFor="json-upload"
-              className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+              ref={dropRef}
+              htmlFor="image-upload"
+              onDrop={onDrop}
+              onDragOver={(e) => e.preventDefault()}
+              className={cx(
+                "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
+                "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
+              )}
+              title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
             >
-              Нажми, чтобы выбрать .json файл
+              {sourceFile ? (
+                <div className="text-left space-y-1">
+                  <p className="text-cyan-400 text-sm font-medium truncate">
+                    {sourceFile.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
+                    {sourceFile.type.replace("image/", "").toUpperCase()}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-400">
+                    Перетащи или нажми, чтобы выбрать
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    PNG, JPEG, WebP • до {MAX_FILE_SIZE_MB}MB • Ctrl+V из буфера
+                  </p>
+                </div>
+              )}
               <input
-                id="json-upload"
+                id="image-upload"
                 type="file"
                 className="hidden"
-                accept="application/json"
-                onChange={onJsonFileChange}
+                accept={ACCEPTED_FILE_TYPES.join(",")}
+                onChange={onFileChange}
               />
             </label>
+          </div>
 
-            {jsonError && (
-              <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
-                {jsonError}
-              </p>
-            )}
+          {/* JSON Viewer */}
+          <div className="mt-5 space-y-3 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+            <button
+              type="button"
+              onClick={() => setIsJsonViewerOpen((v) => !v)}
+              className="w-full text-left text-sm font-medium text-yellow-400"
+            >
+              {isJsonViewerOpen ? "▼ Скрыть JSON Viewer" : "► Открыть JSON Viewer"}
+            </button>
+            {isJsonViewerOpen && (
+              <div className="pt-2 space-y-3">
+                <label
+                  htmlFor="json-upload"
+                  className="block w-full text-center text-xs text-gray-400 border border-dashed border-gray-600 hover:border-yellow-500 rounded-md p-3 cursor-pointer"
+                >
+                  Нажми, чтобы выбрать .json файл
+                  <input
+                    id="json-upload"
+                    type="file"
+                    className="hidden"
+                    accept="application/json"
+                    onChange={onJsonFileChange}
+                  />
+                </label>
 
-            {jsonContent && (
-              <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
-                <code>{jsonContent}</code>
-              </pre>
+                {jsonError && (
+                  <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
+                    {jsonError}
+                  </p>
+                )}
+
+                {jsonContent && (
+                  <pre className="bg-gray-950 p-2 rounded-md text-xs text-gray-300 max-h-60 overflow-auto whitespace-pre-wrap">
+                    <code>{jsonContent}</code>
+                  </pre>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* <<< НАЧАЛО ЗАМЕНЫ */}
-      <div className="mt-5 space-y-4 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
-          <h3 className="text-sm font-medium text-gray-200">Настройка окружения</h3>
+          {/* Настройка окружения */}
+          <div className="mt-5 space-y-4 bg-gray-900/50 border border-gray-700/50 rounded-lg p-3">
+            <h3 className="text-sm font-medium text-gray-200">Настройка окружения</h3>
 
-          {(() => {
-            // --- Шаблоны для ОКОН ---
-            const windowTemplates = [
-              { label: 'Лес летний', value: 'a lush green summer forest with sunbeams filtering through the leaves' },
-              { label: 'Лес зимний', value: 'a quiet, snow-covered winter forest with tall pine trees' },
-              { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky' },
-              { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence' },
-              { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow' },
-            ];
-            
-            // --- Шаблоны для ДВЕРЕЙ ---
-            const doorTemplates = [
-              { label: 'Предбанник', value: 'a cozy antechamber (changing room) with wooden benches' },
-              { label: 'Современный коридор', value: 'a modern, minimalist hallway with soft lighting' },
-              { label: 'Раздевалка', value: 'a clean, bright locker room with wooden cabinets' },
-              { label: 'Другая комната', value: 'another sauna room, slightly out of focus' },
-            ];
-
-            // --- Универсальный обработчик для обоих селекторов ---
-            const handleTemplateChange = (e: ChangeEvent<HTMLSelectElement>, setter: (val: string) => void) => {
-              const value = e.target.value;
-              if (value) {
-                setter(value);
-              }
-            };
-            
-            return (
-              <>
-                {/* Window View */}
-                <div>
-                  <Label title="Вид из окна" />
-                  <div className="flex gap-2">
-                    <select 
-                      onChange={(e) => handleTemplateChange(e, setWindowView)}
-                      className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    >
-                      <option value="">Шаблоны...</option>
-                      {windowTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                    <input
-                        type="text"
-                        value={windowView}
-                        onChange={(e) => setWindowView(e.target.value)}
-                        className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                        placeholder="... или впиши свой вариант"
-                    />
-                  </div>
-                </div>
-
-                {/* Door View */}
-                <div>
-                  <Label title="Вид за дверью" />
-                  <div className="flex gap-2">
-                    <select 
-                      onChange={(e) => handleTemplateChange(e, setDoorView)}
-                      className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    >
-                      <option value="">Шаблоны...</option>
-                      {doorTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                    <input
-                        type="text"
-                        value={doorView}
-                        onChange={(e) => setDoorView(e.target.value)}
-                        className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                        placeholder="... или впиши свой вариант"
-                    />
-                  </div>
-                </div>
-              </>
-            )
-          })()}
-      </div>
-      {/* <<< КОНЕЦ ЗАМЕНЫ */}
-      
-      {/* <<< ИЗМЕНЕНИЕ: Весь блок промпт-инженера теперь показывается по условию */}
-      {!isDetailingMode && (
-        <div
-          className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
-          style={{ backgroundColor: "#221b25ff" }}
-        >
-          <button
-            type="button"
-            onClick={() => setShowRefiner((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400"
-          >
-            {showRefiner
-              ? "▼ Скрыть «Промпт-Инженер»"
-              : "► Открыть «Промпт-Инженер»"}
-          </button>
-          {showRefiner && (
-            <div className="pt-2 space-y-4">
-              <div>
-                <Label title="1. Сообщение для LLM" />
-                <textarea
-                  rows={3}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
-                  value={rawPrompt}
-                  onChange={(e) => setRawPrompt(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <Label title="2. Системный промпт для LLM" />
-                <textarea
-                  name="systemPrompt"
-                  rows={6}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  value={activeLlmSettings.systemPrompt}
-                  onChange={handleLlmSettingsChange}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label title="Модель" />
-                  <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
-                    {(["gpt-5-mini", "gpt-5-nano"] as const).map((model) => (
-                      <button
-                        key={model}
-                        onClick={() =>
-                        // Имитируем событие для нашего универсального хендлера
-                        handleLlmSettingsChange({
-                          target: { name: 'model', value: model },
-                        } as any)
-                      }
-                        className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                        activeLlmSettings.model === model
-                          ? "bg-cyan-600 text-white"
-                          : "hover:bg-gray-800"
-                      }`}
-                      >
-                        {model.replace("gpt-5-", "GPT-5 ")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
-                  <Label title="Контекст" />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={sendImageToLlm}
-                      onChange={(e) => setSendImageToLlm(e.target.checked)}
-                      className="accent-cyan-500"
-                      disabled={!sourceFile}
-                    />
-                    Отправить картинку
-                  </div>
-                </label>
-              </div>
-
-              <div className="pt-2 border-t border-gray-800 space-y-4">
-                <Slider
-                  label="Temperature"
-                  name="temperature"
-                  value={activeLlmSettings.temperature}
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  onChange={handleLlmSettingsChange}
-                />
-                <Slider
-                  label="Top P"
-                  name="topP"
-                  value={activeLlmSettings.topP}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={handleLlmSettingsChange}
-                />
-                <Slider
-                  label="Max Tokens"
-                  name="maxCompletionTokens"
-                  value={activeLlmSettings.maxCompletionTokens}
-                  min={50}
-                  max={1000}
-                  step={10}
-                  onChange={handleLlmSettingsChange}
-                />
-              </div>
-
-              <div className="text-center">
-                <button
-                  onClick={onRefinePrompt}
-                  disabled={!rawPrompt.trim() || isRefining}
-                  className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+            {/* Window View */}
+            <div>
+              <Label title="Вид из окна" />
+              <div className="flex gap-2">
+                <select
+                  onChange={(e) => handleTemplateChange(e, setWindowView)}
+                  className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 >
-                  {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
-                </button>
+                  <option value="">Шаблоны...</option>
+                  {windowTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <input
+                  type="text"
+                  value={windowView}
+                  onChange={(e) => setWindowView(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="... или впиши свой вариант"
+                />
               </div>
-
-              {refineError && (
-                <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
-                  {refineError}
-                </p>
-              )}
             </div>
-          )}
+
+            {/* Door View */}
+            <div>
+              <Label title="Вид за дверью" />
+              <div className="flex gap-2">
+                <select
+                  onChange={(e) => handleTemplateChange(e, setDoorView)}
+                  className="flex-shrink-0 bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                >
+                  <option value="">Шаблоны...</option>
+                  {doorTemplates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <input
+                  type="text"
+                  value={doorView}
+                  onChange={(e) => setDoorView(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="... или впиши свой вариант"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Промпт-Инженер */}
+          <div
+            className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
+            style={{ backgroundColor: "#221b25ff" }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowRefiner((v) => !v)}
+              className="w-full text-left text-sm font-medium text-cyan-400"
+            >
+              {showRefiner
+                ? "▼ Скрыть «Промпт-Инженер»"
+                : "► Открыть «Промпт-Инженер»"}
+            </button>
+            {showRefiner && (
+              <div className="pt-2 space-y-4">
+                <div>
+                  <Label title="1. Сообщение для LLM" />
+                  <textarea
+                    rows={3}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
+                    value={rawPrompt}
+                    onChange={(e) => setRawPrompt(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label title="2. Системный промпт для LLM" />
+                  <textarea
+                    name="systemPrompt"
+                    rows={6}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    value={activeLlmSettings.systemPrompt}
+                    onChange={handleLlmSettingsChange}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label title="Модель" />
+                    <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
+                      {((["gpt-5-mini", "gpt-5-nano"] as const)).map((model) => (
+                        <button
+                          key={model}
+                          onClick={() =>
+                            // Имитируем событие для нашего универсального хендлера
+                            handleLlmSettingsChange({
+                              target: { name: 'model', value: model },
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            } as any) // <<< ИСПРАВЛЕНО (заглушили линтер)
+                          }
+                          className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
+                            activeLlmSettings.model === model
+                              ? "bg-cyan-600 text-white"
+                              : "hover:bg-gray-800"
+                          }`}
+                        >
+                          {model.replace("gpt-5-", "GPT-5 ")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
+                    <Label title="Контекст" />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={sendImageToLlm}
+                        onChange={(e) => setSendImageToLlm(e.target.checked)}
+                        className="accent-cyan-500"
+                        disabled={!sourceFile}
+                      />
+                      Отправить картинку
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-2 border-t border-gray-800 space-y-4">
+                  <Slider
+                    label="Temperature"
+                    name="temperature"
+                    value={activeLlmSettings.temperature}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    onChange={handleLlmSettingsChange}
+                  />
+                  <Slider
+                    label="Top P"
+                    name="topP"
+                    value={activeLlmSettings.topP}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={handleLlmSettingsChange}
+                  />
+                  <Slider
+                    label="Max Tokens"
+                    name="maxCompletionTokens"
+                    value={activeLlmSettings.maxCompletionTokens}
+                    min={50}
+                    max={1000}
+                    step={10}
+                    onChange={handleLlmSettingsChange}
+                  />
+                </div>
+
+                <div className="text-center">
+                  <button
+                    onClick={onRefinePrompt}
+                    disabled={!rawPrompt.trim() || isRefining}
+                    className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
+                  >
+                    {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
+                  </button>
+                </div>
+
+                {refineError && (
+                  <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded-md">
+                    {refineError}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
+      {/* Контент PRO режима */}
+      {activeTab === 'PRO' && (
+        <div className="space-y-3">
+          {/* <<< НОВОЕ: Кнопка смены исходника */}
+          {activeHistory.length > 0 && (
+             <div className="mb-2">
+                <button 
+                  onClick={handleChangeSource}
+                  className="w-full text-center text-xs text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 bg-yellow-900/20 rounded-md py-2 transition"
+                >
+                  ↩︎ Сменить исходник
+                </button>
+             </div>
+          )}
+          <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
+          {/* ЗАГЛУШКИ */}
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Текстуры</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Стиля</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Замена Фона</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Внедрение Объекта</div>
+          <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-400">Редактор по Стрелкам</div>
+        </div>
+      )}
+
+
+      {/* Общие блоки для обоих режимов */}
       {/* prompt */}
       <div className="mt-5 space-y-2">
         <Label
-          title={isDetailingMode ? "Опишите правку" : "Инструкция для генерации"}
+          title={activeTab === 'BASE' ? "Инструкция для генерации" : "Опишите правку"}
           right={
             <span className="text-[10px] text-gray-500">
               Токены: {promptTokenCount}
@@ -457,12 +511,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <textarea
           rows={5}
           className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-          placeholder={isDetailingMode ? "Напр.: Add a white towel on the bench" : "Напр.: Change the walls to photorealistic Canadian cedar..."}
+          placeholder={activeTab === 'BASE' ? "Создай фотореалистичную сауну..." : "Например: сделай эту стену из темного камня"}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
 
-         <button
+        <button
           type="button"
           onClick={() => setShowNeg((v) => !v)}
           className="text-xs text-gray-400 hover:text-gray-200 transition underline underline-offset-4"
@@ -534,7 +588,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <>
             <Slider
               label="Guidance scale"
-              value={qwenSettings.guidance_scale}
+              value={qwenSettings?.guidance_scale ?? 4}
               min={1}
               max={10}
               step={0.1}
@@ -543,7 +597,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Inference Steps"
-              value={qwenSettings.num_inference_steps}
+              value={qwenSettings?.num_inference_steps ?? 30}
               min={10}
               max={60}
               step={1}
@@ -552,7 +606,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Seed"
-              value={qwenSettings.seed}
+              value={qwenSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -566,7 +620,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <>
             <Slider
               label="Guidance scale (CFG)"
-              value={fluxSettings.guidance_scale}
+              value={fluxSettings?.guidance_scale ?? 3.5}
               min={0}
               max={10}
               step={0.1}
@@ -575,7 +629,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Safety Tolerance"
-              value={fluxSettings.safety_tolerance}
+              value={fluxSettings?.safety_tolerance ?? 2}
               min={0}
               max={10}
               step={0.5}
@@ -585,7 +639,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             <Slider
               label="Seed"
-              value={fluxSettings.seed}
+              value={fluxSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -597,7 +651,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {selectedModel === "seedream" && (
           <>
-            {/* <<< НАШ НОВЫЙ БЛОК УПРАВЛЕНИЯ РАЗМЕРОМ */}
+            {/* БЛОК УПРАВЛЕНИЯ РАЗМЕРОМ */}
             <div>
               <Label title="Размер вывода (длинная сторона)" />
               <div className="grid grid-cols-3 gap-2">
@@ -617,7 +671,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ))}
               </div>
             </div>
-            {/* КОНЕЦ НОВОГО БЛОКА */}
+            {/* КОНЕЦ БЛОКА */}
             {seedreamSizeWarning && (
               <p className="text-[11px] text-yellow-300 bg-yellow-900/40 border border-yellow-800/50 p-2 rounded-md mt-2">
                 {seedreamSizeWarning}
@@ -626,7 +680,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <Slider
               label="Seed"
-              value={seedreamSettings.seed}
+              value={seedreamSettings?.seed ?? 0}
               min={0}
               max={2147483647}
               step={1}
@@ -656,7 +710,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
           title="Ctrl/Cmd+Enter — тоже сработает"
         >
-          {isLoading ? "Генерация..." : isDetailingMode ? "Доработать" : "Сгенерировать"}
+          {isLoading ? "Обработка..." : (activeTab === 'BASE' ? "Сгенерировать" : "Доработать")}
         </button>
 
         <div className="flex items-center justify-between">
