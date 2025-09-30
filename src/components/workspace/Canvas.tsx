@@ -1,17 +1,18 @@
 // src/components/workspace/Canvas.tsx
-
 import React from "react";
 import { cx } from "@/lib/utils";
 import { GenerationNode } from "@/lib/types";
-import Image from "next/image"; // <<< ИЗМЕНЕНО: Импортируем компонент
+import Image from "next/image";
 
 // --- Внутренний компонент №1: Лоток с базовыми результатами ---
 const BaseResultsTray: React.FC<{
   nodes: GenerationNode[];
   selectedUrl: string | null;
-  onSelect: (url: string) => void;
+  // onSelect принимает весь узел
+  onSelect: (node: GenerationNode) => void;
   onPromote: (id: string) => void;
-}> = ({ nodes, selectedUrl, onSelect, onPromote }) => {
+  onDelete: (id: string) => void;
+}> = ({ nodes, selectedUrl, onSelect, onPromote, onDelete }) => {
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
@@ -21,15 +22,15 @@ const BaseResultsTray: React.FC<{
         {nodes.map((node) => (
           <div key={node.id} className="relative group">
             <button
-              onClick={() => onSelect(node.imageUrl)}
+              onClick={() => onSelect(node)}
+              title="Выбрать для сравнения"
               className={cx(
-                "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none", // <<< ИЗМЕНЕНО: Добавлен 'relative'
+                "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
                 node.imageUrl === selectedUrl
                   ? "ring-2 ring-cyan-500"
                   : "hover:ring-2 ring-gray-600"
               )}
             >
-              {/* <<< ИЗМЕНЕНО: Заменяем <img> на <Image /> */}
               <Image
                 src={node.imageUrl}
                 alt={`Base result ${node.id}`}
@@ -38,9 +39,22 @@ const BaseResultsTray: React.FC<{
                 className="object-cover"
               />
             </button>
+
+            {/* Кнопка удаления */}
+            <button
+              onClick={() => onDelete(node.id)}
+              className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Удалить"
+              aria-label="Удалить"
+            >
+              ✕
+            </button>
+
+            {/* Отправить в PRO */}
             <button
               onClick={() => onPromote(node.id)}
               className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Отправить в PRO"
             >
               В PRO →
             </button>
@@ -65,8 +79,8 @@ const CompareView: React.FC<{
           Загрузите скетч
         </div>
       )}
+
       {sourceUrl && (
-        // <<< ИЗМЕНЕНО: Заменяем <img> на <Image />
         <Image
           src={sourceUrl}
           alt="Source"
@@ -75,9 +89,9 @@ const CompareView: React.FC<{
           className="object-contain"
         />
       )}
+
       {sourceUrl && resultUrl && (
         <>
-          {/* <<< ИЗМЕНЕНО: Заменяем <img> на <Image /> */}
           <Image
             src={resultUrl}
             alt="Result (clipped)"
@@ -110,13 +124,15 @@ const GenerationTree: React.FC<{
   activeNodeId: string | null;
   onSelectNode: (id: string) => void;
 }> = ({ nodes, activeNodeId, onSelectNode }) => {
-  // Группируем узлы по родителям для визуализации веток
-  const nodesByParent = nodes.reduce((acc, node) => {
-    const parentId = node.parentId ?? "root";
-    if (!acc[parentId]) acc[parentId] = [];
-    acc[parentId].push(node);
-    return acc;
-  }, {} as Record<string, GenerationNode[]>);
+  const nodesByParent = nodes.reduce(
+    (acc: Record<string, GenerationNode[]>, node: GenerationNode) => {
+      const parentId = node.parentId ?? "root";
+      if (!acc[parentId]) acc[parentId] = [];
+      acc[parentId].push(node);
+      return acc;
+    },
+    {} as Record<string, GenerationNode[]>
+  );
 
   const renderBranch = (parentId: string | null) => {
     const key = parentId ?? "root";
@@ -135,14 +151,13 @@ const GenerationTree: React.FC<{
             <button
               onClick={() => onSelectNode(node.id)}
               className={cx(
-                "relative w-24 h-24 bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none shrink-0", // <<< ИЗМЕНЕНО: Добавлен 'relative'
+                "relative w-24 h-24 bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none shrink-0",
                 node.id === activeNodeId
                   ? "ring-2 ring-cyan-500 shadow-lg shadow-cyan-500/20"
                   : "hover:ring-2 ring-gray-600"
               )}
               title={`Выбрать узел #${node.id.slice(0, 4)}`}
             >
-              {/* <<< ИЗМЕНЕНО: Заменяем <img> на <Image /> */}
               <Image
                 src={node.imageUrl}
                 alt={`Node ${node.id}`}
@@ -174,6 +189,8 @@ interface CanvasProps {
   // Общие
   isLoading: boolean;
   sourceFile: File | null;
+
+  // Патч: добавили fallback-URL исходника
   sourceUrl: string | null;
 
   // Управление вкладками
@@ -182,23 +199,32 @@ interface CanvasProps {
   // Для BASE и "Прихожей"
   baseResults: GenerationNode[];
   selectedBaseResultUrl: string | null;
-  setSelectedBaseResultUrl: (url: string) => void;
+
+  // Источник для сравнения (из истории) + выбор результата
+  compareSourceUrl: string | null;
+  selectBaseResultForCompare: (node: GenerationNode) => void;
+
   comparePos: number;
   setComparePos: (pos: number) => void;
 
   // Для PRO-"Мастерской"
-  activeHistory: GenerationNode[]; // <<< ИЗМЕНЕНО
+  activeHistory: GenerationNode[];
   activeNodeId: string | null;
   setActiveNodeId: (id: string) => void;
   activeNode: GenerationNode | null;
 
   // Общие
   handlePromoteToPro: (id: string) => void;
+
+  // Патч: удаление базового результата
+  deleteBaseResult: (nodeId: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   isLoading,
   sourceFile,
+
+  // Патч: новый проп для фолбэка
   sourceUrl,
 
   // Tabs
@@ -207,18 +233,24 @@ export const Canvas: React.FC<CanvasProps> = ({
   // BASE
   baseResults,
   selectedBaseResultUrl,
-  setSelectedBaseResultUrl,
+
+  compareSourceUrl,
+  selectBaseResultForCompare,
+
   comparePos,
   setComparePos,
 
   // PRO
-  activeHistory, // <<< ИЗМЕНЕНО
+  activeHistory,
   activeNodeId,
   setActiveNodeId,
   activeNode,
 
   // Общие
   handlePromoteToPro,
+
+  // Патч
+  deleteBaseResult,
 }) => {
   const handleDownloadSource = () => {
     if (!sourceFile) return;
@@ -232,7 +264,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   };
 
   const handleDownloadResult = () => {
-    const url = activeTab === "BASE" ? selectedBaseResultUrl : activeNode?.imageUrl;
+    const url =
+      activeTab === "BASE" ? selectedBaseResultUrl : activeNode?.imageUrl;
     if (!url) return;
     const link = document.createElement("a");
     link.href = url;
@@ -244,7 +277,9 @@ export const Canvas: React.FC<CanvasProps> = ({
     <section className="space-y-4">
       {/* Верхняя панель */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-400">{isLoading ? "Обработка…" : "Готово"}</div>
+        <div className="text-sm text-gray-400">
+          {isLoading ? "Обработка…" : "Готово"}
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownloadSource}
@@ -268,12 +303,14 @@ export const Canvas: React.FC<CanvasProps> = ({
         <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
           {activeTab === "BASE"
             ? "Сравнение с исходным скетчем"
-            : `Мастерская: узел #${activeNodeId?.slice(0, 4) ?? "..."}`}
+            : `Мастерская: узел #${activeNodeId?.slice(0, 4) ?? "..."}`
+          }
         </div>
 
         {activeTab === "BASE" && (
           <CompareView
-            sourceUrl={sourceUrl}
+            // Патч: если нет "воспоминания" из истории — берём текущий скетч
+            sourceUrl={compareSourceUrl || sourceUrl}
             resultUrl={selectedBaseResultUrl}
             comparePos={comparePos}
             setComparePos={setComparePos}
@@ -288,7 +325,6 @@ export const Canvas: React.FC<CanvasProps> = ({
               </div>
             )}
             {activeNode && (
-               // <<< ИЗМЕНЕНО: Заменяем <img> на <Image />
               <Image
                 src={activeNode.imageUrl}
                 alt="Active PRO node"
@@ -302,38 +338,37 @@ export const Canvas: React.FC<CanvasProps> = ({
         )}
       </div>
 
-      {/* <<< ПЕРЕПИСАНО: Логика отображения нижней части */}
-
       {/* Таб BASE: всегда показываем лоток */}
       {activeTab === "BASE" && baseResults.length > 0 && (
         <BaseResultsTray
           nodes={baseResults}
           selectedUrl={selectedBaseResultUrl}
-          onSelect={setSelectedBaseResultUrl}
+          onSelect={selectBaseResultForCompare}
           onPromote={handlePromoteToPro}
+          onDelete={deleteBaseResult}
         />
       )}
 
       {/* Таб PRO: показываем либо "Прихожую", либо "Мастерскую" */}
       {activeTab === "PRO" && (
         <>
-          {/* "Прихожая": если нет активного воркспейса, но есть базовые результаты */}
+          {/* "Прихожая": нет истории, но есть базовые результаты */}
           {activeHistory.length === 0 && baseResults.length > 0 && (
             <div className="bg-gray-850 border border-gray-800 rounded-xl">
               <div className="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-yellow-300">
                 Шаг 1: Выберите исходник для доработки
               </div>
-              {/* Используем тот же лоток, но клик по превью не активирует сравнение — только кнопка "В PRO" */}
               <BaseResultsTray
                 nodes={baseResults}
                 selectedUrl={null}
                 onSelect={() => {}}
                 onPromote={handlePromoteToPro}
+                onDelete={deleteBaseResult}
               />
             </div>
           )}
 
-          {/* "Мастерская": если есть активный воркспейс */}
+          {/* "Мастерская": когда есть история */}
           {activeHistory.length > 0 && (
             <GenerationTree
               nodes={activeHistory}

@@ -21,16 +21,16 @@ export type LlmSettings = {
   maxCompletionTokens: number;
 };
 
-// <<< НОВОЕ: Тип для узла в дереве генераций
 export type GenerationNode = {
-  id: string; // Уникальный ID
-  parentId: string | null; // ID родителя, null для корневого
-  imageUrl: string; // URL изображения
+  id: string;
+  parentId: string | null;
+  imageUrl: string;
+  sourceImageUrl: string | null; 
   // Метаданные для восстановления контекста
   prompt: string;
   negativePrompt: string;
   model: Model;
-  settings: object; // Настройки, с которыми была генерация
+  settings: object;
 };
 
 export type PersistState = {

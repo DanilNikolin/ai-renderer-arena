@@ -6,6 +6,7 @@ import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE_MB } from "@/lib/types";
 export function useFileHandler() {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sourceDataUrl, setSourceDataUrl] = useState<string | null>(null); // <<< ВОТ ОНА, РОДИМАЯ
   const [imageInfo, setImageInfo] = useState<{ w: number; h: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -28,6 +29,12 @@ export function useFileHandler() {
 
     const url = URL.createObjectURL(file);
     setSourceUrl(url);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSourceDataUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
 
     try {
       const dims = await readImageDims(file);
@@ -53,7 +60,6 @@ export function useFileHandler() {
     }
   };
 
-  // <<< ИЗМЕНЕНО: Тип 'e' теперь 'globalThis.ClipboardEvent', чтобы соответствовать window.addEventListener
   const onPaste = useCallback(async (e: globalThis.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -74,11 +80,11 @@ export function useFileHandler() {
       URL.revokeObjectURL(sourceUrl);
     }
     setSourceUrl(null);
+    setSourceDataUrl(null);
     setImageInfo(null);
     setFileError(null);
   };
 
-  // <<< ИЗМЕНЕНО: Упростили, передавая onPaste напрямую
   useEffect(() => {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -95,6 +101,7 @@ export function useFileHandler() {
   return {
     sourceFile,
     sourceUrl,
+    sourceDataUrl,
     imageInfo,
     fileError,
     dropRef,

@@ -9,7 +9,7 @@ import { useSettingsManager } from "@/hooks/useSettingsManager";
 import { LLM_SYSTEM_PROMPT } from "@/lib/constants";
 
 const defaultLlmSettings: LlmSettings = {
-  model: 'gpt-5-mini',
+  model: "gpt-5-mini",
   systemPrompt: LLM_SYSTEM_PROMPT,
   temperature: 1.0,
   topP: 1,
@@ -24,16 +24,24 @@ const initialLlmSettingsByModel: { [key in Model]?: Partial<LlmSettings> } = {
 };
 
 export function useImageWorkspace() {
-  const { 
-    sourceFile, sourceUrl, imageInfo, fileError, 
-    dropRef, onFileChange, onDrop, clearFile 
+  const {
+    sourceFile,
+    sourceUrl,         // <<< Используем для отображения
+    sourceDataUrl,     // <<< Используем для сохранения
+    imageInfo,
+    fileError,
+    dropRef,
+    onFileChange,
+    onDrop,
+    clearFile,
   } = useFileHandler();
 
   const settingsManager = useSettingsManager(imageInfo);
-  
-  const [activeTab, setActiveTab] = useState<'BASE' | 'PRO'>('BASE');
+
+  const [activeTab, setActiveTab] = useState<"BASE" | "PRO">("BASE");
   const [baseResults, setBaseResults] = useState<GenerationNode[]>([]);
   const [selectedBaseResultUrl, setSelectedBaseResultUrl] = useState<string | null>(null);
+  const [compareSourceUrl, setCompareSourceUrl] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
@@ -58,42 +66,55 @@ export function useImageWorkspace() {
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
 
-  useEffect(() => { if (fileError) setError(fileError); }, [fileError]);
+  useEffect(() => {
+    if (fileError) setError(fileError);
+  }, [fileError]);
 
-  const activeHistory = useMemo(() => workspaces[activeWorkspaceId ?? ''] ?? [], [workspaces, activeWorkspaceId]);
-  const activeNode = useMemo(() => activeHistory.find(node => node.id === activeNodeId) ?? null, [activeNodeId, activeHistory]);
-  
+  const activeHistory = useMemo(
+    () => workspaces[activeWorkspaceId ?? ""] ?? [],
+    [workspaces, activeWorkspaceId]
+  );
+  const activeNode = useMemo(
+    () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
+    [activeNodeId, activeHistory]
+  );
+
   const isReadyToGenerate = useMemo(() => {
-    if (activeTab === 'BASE') return !!sourceFile && !!prompt.trim() && !isLoading;
+    if (activeTab === "BASE") return !!sourceFile && !!prompt.trim() && !isLoading;
     return !!activeNode && !!prompt.trim() && !isLoading;
   }, [activeTab, sourceFile, activeNode, prompt, isLoading]);
-  
-  const fail = useCallback((msg: string) => { setError(msg); setIsLoading(false); }, []);
+
+  const fail = useCallback((msg: string) => {
+    setError(msg);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
     if (sourceFile) {
       setError(null);
-      setActiveNodeId(null);
-      setBaseResults([]);
+      // Сбрасываем и результат, и его исходник, чтобы канвас обновился
       setSelectedBaseResultUrl(null);
+      setCompareSourceUrl(null); // <<< ВОТ ОНА, НЕДОСТАЮЩАЯ СТРОЧКА
+      // Принудительно переключаем на вкладку BASE
       setActiveTab("BASE");
     }
   }, [sourceFile]);
-  
+
+  // persist load
   useEffect(() => {
     const p = loadPersist();
     if (!p) return;
     setBaseResults(p.baseResults ?? []);
-    setActiveTab(p.activeTab ?? 'BASE');
+    setActiveTab(p.activeTab ?? "BASE");
     setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
     setWorkspaces(p.workspaces ?? {});
     setActiveWorkspaceId(p.activeWorkspaceId ?? null);
     setPrompt(p.prompt ?? "");
     setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
-    if(p.selectedModel) settingsManager.setSelectedModel(p.selectedModel);
-    if(p.qwenSettings) settingsManager.setQwenSettings(p.qwenSettings);
-    if(p.fluxSettings) settingsManager.setFluxSettings(p.fluxSettings);
-    if(p.seedreamSettings) settingsManager.setSeedreamSettings(p.seedreamSettings);
+    if (p.selectedModel) settingsManager.setSelectedModel(p.selectedModel);
+    if (p.qwenSettings) settingsManager.setQwenSettings(p.qwenSettings);
+    if (p.fluxSettings) settingsManager.setFluxSettings(p.fluxSettings);
+    if (p.seedreamSettings) settingsManager.setSeedreamSettings(p.seedreamSettings);
     if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
@@ -103,24 +124,43 @@ export function useImageWorkspace() {
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
   }, []);
 
+  // persist save
   useEffect(() => {
     savePersist({
-      prompt, negativePrompt, llmSettingsByModel, sendImageToLlm, 
-      showRefiner, showNeg, comparePos, activeTab, baseResults, 
-      selectedBaseResultUrl, workspaces, activeWorkspaceId,
+      prompt,
+      negativePrompt,
+      llmSettingsByModel,
+      sendImageToLlm,
+      showRefiner,
+      showNeg,
+      comparePos,
+      activeTab,
+      baseResults,
+      selectedBaseResultUrl,
+      workspaces,
+      activeWorkspaceId,
       selectedModel: settingsManager.selectedModel,
       qwenSettings: settingsManager.qwenSettings,
       fluxSettings: settingsManager.fluxSettings,
       seedreamSettings: settingsManager.seedreamSettings,
       seedLock: settingsManager.seedLock,
       seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: 'compare' // deprecated
+      tab: "compare", // deprecated
     });
   }, [
-    prompt, negativePrompt, llmSettingsByModel, sendImageToLlm, 
-    showRefiner, showNeg, comparePos, activeTab, baseResults, 
-    selectedBaseResultUrl, workspaces, activeWorkspaceId,
-    settingsManager
+    prompt,
+    negativePrompt,
+    llmSettingsByModel,
+    sendImageToLlm,
+    showRefiner,
+    showNeg,
+    comparePos,
+    activeTab,
+    baseResults,
+    selectedBaseResultUrl,
+    workspaces,
+    activeWorkspaceId,
+    settingsManager,
   ]);
 
   useEffect(() => {
@@ -128,15 +168,35 @@ export function useImageWorkspace() {
     setNegativeTokenCount(encode(negativePrompt || "").length);
   }, [prompt, negativePrompt]);
 
+  useEffect(() => {
+    if (selectedBaseResultUrl && !baseResults.some((node) => node.imageUrl === selectedBaseResultUrl)) {
+      setSelectedBaseResultUrl(null);
+    }
+    if (activeWorkspaceId && !workspaces[activeWorkspaceId]) {
+      setActiveWorkspaceId(null);
+      setActiveNodeId(null);
+      setActiveTab("BASE");
+    }
+  }, [baseResults, workspaces, selectedBaseResultUrl, activeWorkspaceId]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onGenerate();
+    }
     if (e.key === "Escape" && isLoading) onCancel();
   };
 
   const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    const parsedValue = type === 'number' ? parseFloat(value) : value;
-    setLlmSettingsByModel(prev => ({ ...prev, [settingsManager.selectedModel]: { ...(prev[settingsManager.selectedModel] ?? {}), [name]: parsedValue } }));
+    const parsedValue = type === "number" ? parseFloat(value) : value;
+    setLlmSettingsByModel((prev) => ({
+      ...prev,
+      [settingsManager.selectedModel]: {
+        ...(prev[settingsManager.selectedModel] ?? {}),
+        [name]: parsedValue,
+      },
+    }));
   };
 
   const onRefinePrompt = async () => {
@@ -180,7 +240,9 @@ export function useImageWorkspace() {
       if (error instanceof Error) {
         if (error.name === "AbortError") setRefineError("Улучшение отменено.");
         else setRefineError(error.message);
-      } else { setRefineError("Произошла неизвестная ошибка."); }
+      } else {
+        setRefineError("Произошла неизвестная ошибка.");
+      }
     } finally {
       setIsRefining(false);
     }
@@ -191,10 +253,10 @@ export function useImageWorkspace() {
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
-    
+
     let currentImageFile: File;
     let parentId: string | null = null;
-    if (activeTab === 'BASE') {
+    if (activeTab === "BASE") {
       if (!sourceFile) return fail("Нет исходного файла.");
       currentImageFile = sourceFile;
     } else {
@@ -222,32 +284,54 @@ export function useImageWorkspace() {
     try {
       const data = await api.generateImage(formData, abortControllerRef.current!.signal);
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(), parentId, imageUrl: data.imageUrl, prompt,
-        negativePrompt, model: settingsManager.selectedModel, settings,
+        id: crypto.randomUUID(),
+        parentId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeTab === 'BASE' ? sourceDataUrl : activeNode?.sourceImageUrl ?? null, // <<< ИСПОЛЬЗУЕМ ВЕЧНЫЙ URL
+        prompt,
+        negativePrompt,
+        model: settingsManager.selectedModel,
+        settings,
       };
       if (activeTab === 'BASE') {
         setBaseResults(prev => [...prev, newNode]);
         setSelectedBaseResultUrl(newNode.imageUrl);
+        setCompareSourceUrl(newNode.sourceImageUrl);
       } else {
         if (!activeWorkspaceId) return fail("Критическая ошибка: нет воркспейса.");
-        setWorkspaces(prev => ({ ...prev, [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode] }));
+        setWorkspaces((prev) => ({
+          ...prev,
+          [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+        }));
         setActiveNodeId(newNode.id);
       }
     } catch (e) {
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else { setError("Неизвестная ошибка при генерации."); }
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
-  
+
+  const selectBaseResultForCompare = (node: GenerationNode | null) => {
+    if (node) {
+      setSelectedBaseResultUrl(node.imageUrl);
+      setCompareSourceUrl(node.sourceImageUrl);
+    } else {
+      setSelectedBaseResultUrl(null);
+      setCompareSourceUrl(null);
+    }
+  };
+
   const handleJsonFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        if (typeof event.target?.result !== 'string') throw new Error("Не удалось прочитать файл.");
+        if (typeof event.target?.result !== "string") throw new Error("Не удалось прочитать файл.");
         const parsed = JSON.parse(event.target.result);
         setJsonContent(JSON.stringify(parsed, null, 2));
         setJsonError(null);
@@ -263,7 +347,7 @@ export function useImageWorkspace() {
     };
     reader.readAsText(file);
   };
-  
+
   const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type === "application/json") handleJsonFile(file);
@@ -280,48 +364,112 @@ export function useImageWorkspace() {
     setActiveTab("BASE");
     settingsManager.setSeedLock(false);
   };
-  
+
   const onCancel = () => {
     abortControllerRef.current?.abort();
     setIsLoading(false);
     setError("Генерация отменена.");
   };
 
-  const handleTabChange = (tab: 'BASE' | 'PRO') => {
-    if (tab === 'PRO' && !activeWorkspaceId && baseResults.length > 0) {
+  const handleTabChange = (tab: "BASE" | "PRO") => {
+    if (tab === "PRO" && !activeWorkspaceId && baseResults.length > 0) {
       handlePromoteToPro(baseResults[baseResults.length - 1].id);
       return;
     }
     setActiveTab(tab);
   };
 
-  const handleChangeSource = () => { setActiveWorkspaceId(null); setActiveNodeId(null); };
+  const handleChangeSource = () => {
+    setActiveWorkspaceId(null);
+    setActiveNodeId(null);
+  };
 
   const handlePromoteToPro = (nodeId: string) => {
-    const nodeToPromote = baseResults.find(node => node.id === nodeId);
+    const nodeToPromote = baseResults.find((node) => node.id === nodeId);
     if (!nodeToPromote) return fail("Не удалось найти узел.");
     if (!workspaces[nodeToPromote.id]) {
-      setWorkspaces(prev => ({ ...prev, [nodeToPromote.id]: [nodeToPromote] }));
+      setWorkspaces((prev) => ({ ...prev, [nodeToPromote.id]: [nodeToPromote] }));
     }
     setActiveWorkspaceId(nodeToPromote.id);
     setActiveNodeId(nodeToPromote.id);
-    setActiveTab('PRO');
+    setActiveTab("PRO");
+  };
+
+  const deleteBaseResult = (nodeId: string) => {
+    setBaseResults((prev) => prev.filter((node) => node.id !== nodeId));
+  };
+
+  const deleteWorkspace = (workspaceId: string) => {
+    setWorkspaces((prev) => {
+      const newWorkspaces = { ...prev };
+      delete newWorkspaces[workspaceId];
+      return newWorkspaces;
+    });
+    if (activeWorkspaceId === workspaceId) {
+      setActiveWorkspaceId(null);
+      setActiveNodeId(null);
+    }
   };
 
   return {
     ...settingsManager,
-    sourceFile, sourceUrl, imageInfo, onFileChange, onDrop, dropRef,
-    activeTab, handleTabChange, handleChangeSource, baseResults,
-    selectedBaseResultUrl, setSelectedBaseResultUrl, handlePromoteToPro,
-    activeHistory, activeNode, activeNodeId, setActiveNodeId,
-    comparePos, setComparePos, isLoading, error, isReadyToGenerate,
-    prompt, setPrompt, rawPrompt, setRawPrompt, negativePrompt,
-    setNegativePrompt, promptTokenCount, negativeTokenCount,
-    isRefining, refineError, onRefinePrompt, sendImageToLlm, 
-    setSendImageToLlm, llmSettingsByModel, handleLlmSettingsChange, 
-    showRefiner, setShowRefiner, showNeg, setShowNeg, 
-    windowView, setWindowView, doorView, setDoorView,
-    jsonContent, isJsonViewerOpen, setIsJsonViewerOpen, jsonError,
-    onJsonFileChange, onGenerate, onClear, onCancel, onKeyDown,
+    sourceFile,
+    sourceUrl, // <<< ВОЗВРАЩАЕМ БЫСТРЫЙ URL ДЛЯ КАНВАСА
+    imageInfo,
+    onFileChange,
+    onDrop,
+    dropRef,
+    activeTab,
+    handleTabChange,
+    handleChangeSource,
+    baseResults,
+    selectedBaseResultUrl,
+    selectBaseResultForCompare,
+    compareSourceUrl,
+    setSelectedBaseResultUrl,
+    handlePromoteToPro,
+    activeHistory,
+    activeNode,
+    activeNodeId,
+    setActiveNodeId,
+    comparePos,
+    setComparePos,
+    isLoading,
+    error,
+    isReadyToGenerate,
+    prompt,
+    setPrompt,
+    rawPrompt,
+    setRawPrompt,
+    negativePrompt,
+    setNegativePrompt,
+    promptTokenCount,
+    negativeTokenCount,
+    isRefining,
+    refineError,
+    onRefinePrompt,
+    sendImageToLlm,
+    setSendImageToLlm,
+    llmSettingsByModel,
+    handleLlmSettingsChange,
+    showRefiner,
+    setShowRefiner,
+    showNeg,
+    setShowNeg,
+    windowView,
+    setWindowView,
+    doorView,
+    setDoorView,
+    jsonContent,
+    isJsonViewerOpen,
+    setIsJsonViewerOpen,
+    jsonError,
+    onJsonFileChange,
+    onGenerate,
+    onClear,
+    onCancel,
+    onKeyDown,
+    deleteBaseResult,
+    deleteWorkspace,
   };
 }
