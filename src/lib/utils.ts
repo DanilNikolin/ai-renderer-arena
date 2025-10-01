@@ -1,6 +1,6 @@
 // src/lib/utils.ts
 
-import { PersistState } from "./types";
+import { PersistState, GenerationNode } from "./types";
 
 /**
  * Утилита для склейки CSS-классов.
@@ -44,14 +44,14 @@ export function savePersist(s: PersistState) {
     // Вырезаем жирные Data URL из baseResults
     if (stateToSave.baseResults) {
       stateToSave.baseResults.forEach((node: GenerationNode) => {
-        delete (node as any).sourceImageUrl;
+        delete (node as Record<string, unknown>).sourceImageUrl;
       });
     }
     // И из всех воркспейсов
     if (stateToSave.workspaces) {
       Object.keys(stateToSave.workspaces).forEach(wsId => {
         stateToSave.workspaces[wsId].forEach((node: GenerationNode) => {
-          delete (node as any).sourceImageUrl;
+          delete (node as Record<string, unknown>).sourceImageUrl;
         });
       });
     }

@@ -234,7 +234,7 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    let targetAreas = [];
+    const targetAreas = [];
     if (targets.window) targetAreas.push("the windows");
     if (targets.door) targetAreas.push("the glass door");
     const promptTarget = targetAreas.join(" and ");

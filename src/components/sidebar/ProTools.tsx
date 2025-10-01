@@ -1,13 +1,18 @@
 // src/components/sidebar/ProTools.tsx
 import React, { useState } from 'react';
-import { cx } from '@/lib/utils';
 import type { SidebarProps } from '../workspace/Sidebar.types';
 import { InstructionEditor } from './InstructionEditor';
 import { BackgroundReplacer } from './BackgroundReplacer'; // <<< 1. Импортируем новый инструмент
 
+
 // ProTools теперь должен знать о новой функции, которую он будет передавать
 type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
-  onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }) => void;
+  onGenerateBackgroundReplacement: (
+    file: File,
+    targets: { window: boolean; door: boolean },
+    model: 'gemini' | 'seedream'
+  ) => void;
+  sourceAspectRatio: number; // <-- ДОБАВЛЕНО
 };
 
 export const ProTools: React.FC<ProToolsProps> = (props) => {
@@ -61,6 +66,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
               <BackgroundReplacer
                 onGenerate={props.onGenerateBackgroundReplacement}
                 isLoading={props.isLoading}
+                sourceAspectRatio={props.sourceAspectRatio}
               />
             </div>
           )}
