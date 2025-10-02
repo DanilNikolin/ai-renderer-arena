@@ -4,6 +4,7 @@ import type { SidebarProps } from '../workspace/Sidebar.types';
 import { InstructionEditor } from './InstructionEditor';
 import { TextureTransplanter } from './TextureTransplanter';
 import { BackgroundReplacer } from './BackgroundReplacer'; 
+import { StyleTransplanter } from './StyleTransplanter';
 
 
 // ProTools теперь должен знать о новой функции, которую он будет передавать
@@ -13,14 +14,18 @@ type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
-  sourceAspectRatio: number; // <-- ДОБАВЛЕНО
+  onGenerateStyleReplacement: ( 
+    file: File, 
+    model: 'gemini' | 'seedream'
+  ) => void;
+  sourceAspectRatio: number;
 };
 
 export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isEditorOpen, setIsEditorOpen] = useState(true);
-  // <<< 2. Добавляем стейт для нового "баяна"
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
+  const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -94,8 +99,26 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             </div>
           )}
         </div>
+
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsStyleTransplanterOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isStyleTransplanterOpen ? '▼' : '►'} Замена Стиля
+          </button>
+          {isStyleTransplanterOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <StyleTransplanter
+               onGenerate={props.onGenerateStyleReplacement}
+                isLoading={props.isLoading}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
         
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Стиля</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>
       </div>

@@ -279,6 +279,69 @@ export function useImageWorkspace() {
     }
   };
 
+  const onGenerateStyleReplacement = async (
+    referenceFile: File,
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // Наш железобетонный промпт
+    const prompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+
+    // Превращаем URL активной сауны в файл для отправки
+    let sourceImageFile: File;
+    try {
+      const response = await fetch(activeNode.imageUrl);
+      const blob = await response.blob();
+      sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
+    } catch {
+      return fail("Не удалось загрузить изображение из активного узла.");
+    }
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", sourceImageFile); // Главное изображение - сауна
+    formData.append("reference_image", referenceFile); // Референс - стиль
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const onGenerateBackgroundReplacement = async (
     referenceFile: File,
@@ -648,6 +711,7 @@ export function useImageWorkspace() {
     onGenerate,
     onGenerateBackgroundReplacement,
     onGenerateTextureReplacement,
+    onGenerateStyleReplacement,
     onClear,
     onCancel,
     onKeyDown,
