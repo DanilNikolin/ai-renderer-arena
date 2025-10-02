@@ -51,9 +51,9 @@ export interface SidebarProps {
   isReadyToGenerate: boolean;
   isLoading: boolean;
   onGenerate: () => void;
-  onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
+  onGenerateBackgroundReplacement: (file: File | null, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
   onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
-  onGenerateStyleReplacement: (referenceFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateStyleReplacement: (referenceFile: File | null, model: 'gemini' | 'seedream') => void;
   onGenerateObjectInjection: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
   onGenerateArrowEdits: (imageBlob: Blob, instructionsText: string, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
@@ -75,4 +75,16 @@ export interface SidebarProps {
   setDoorView: (value: string) => void;
   sourceAspectRatio: number;
   activeNode: GenerationNode | null;
+  helperPrompts: {
+    background: string;
+    style: string;
+    texture: string;
+    object: string;
+  };
+  setHelperPrompts: React.Dispatch<React.SetStateAction<{
+    background: string;
+    style: string;
+    texture: string;
+    object: string;
+  }>>;
 }

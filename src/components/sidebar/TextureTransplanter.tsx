@@ -11,7 +11,9 @@ interface TextureTransplanterProps {
   onGenerate: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
   isLoading: boolean;
   activeImageUrl: string | null;
-  sourceAspectRatio: number; // <<< 2. ДОБАВЛЕН ПРОПС
+  sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
@@ -19,6 +21,8 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
   const [textureFile, setTextureFile] = useState<File | null>(null);
@@ -125,6 +129,11 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
           {texturePreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
               <Image src={texturePreview} alt="Texture preview" fill sizes="120px" className="object-cover" />
+              <button 
+                onClick={() => setTextureFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать текстуру"
+              >✕</button>
             </div>
           )}
         </div>
@@ -143,11 +152,32 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
               <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setTargetMapFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать указатель"
+              >✕</button>
             </div>
           )}
         </div>
         
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+        <div>
+            <Label title="Уточнение (необязательно)" />
+            <div className="relative">
+                <textarea
+                    rows={2}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder="Пример: сделать текстуру более старой"
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
+        </div>
 
         {/* Кнопка действия */}
         <button

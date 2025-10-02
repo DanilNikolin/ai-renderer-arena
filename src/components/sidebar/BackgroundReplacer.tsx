@@ -8,19 +8,23 @@ type ModelForBg = 'gemini' | 'seedream';
 
 interface BackgroundReplacerProps {
   onGenerate: (
-    referenceFile: File,
+    referenceFile: File | null, 
     targets: { window: boolean; door: boolean },
     model: ModelForBg
   ) => void;
   isLoading: boolean;
   // ВАЖНО: Нам нужно знать пропорции исходной сауны, чтобы заблокировать кроппер
   sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
@@ -32,9 +36,12 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   // Этот стейт открывает/закрывает кроппер и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
 
+  const fileIsPresent = !!referenceFile;
+  const textIsPresent = helperPrompt.trim().length > 0;
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isReady = referenceFile && (targets.window || targets.door) && !isLoading;
+  const isReady = (referenceFile || helperPrompt.trim()) && (targets.window || targets.door) && !isLoading;
 
   // Шаг 1: Пользователь выбирает файл, мы открываем кроппер
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -80,6 +87,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
     }
   }
 
+  
   // Этот хук теперь работает с уже обрезанным файлом для маленького превью
   useEffect(() => {
     if (!referenceFile) {
@@ -92,7 +100,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady || !referenceFile) return;
+    if (!isReady) return; // <<< УБИРАЕМ ПРОВЕРКУ !referenceFile
     onGenerate(referenceFile, targets, selectedModel);
   };
   
@@ -121,6 +129,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
             <button
                 type="button"
                 onClick={handleButtonClick}
+                disabled={textIsPresent} 
                 className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
             >
                 {previewUrl ? 'Заменить фон' : '+ Загрузить фон'}
@@ -135,6 +144,11 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
                 alt="Reference preview"
                 className="h-full w-auto object-contain"
             />
+            <button 
+                onClick={() => setReferenceFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать фон"
+              >✕</button>
                 </div>
             )}
 
@@ -181,6 +195,23 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
               Дверь
             </label>
           </div>
+        </div>
+        <div>
+            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите фон текстом"} />
+            <div className="relative">
+                <textarea
+                    rows={3}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    disabled={fileIsPresent}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}

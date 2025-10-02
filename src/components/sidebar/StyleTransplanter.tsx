@@ -9,15 +9,19 @@ import Image from 'next/image';
 type ModelForStyle = 'gemini' | 'seedream';
 
 interface StyleTransplanterProps {
-  onGenerate: (referenceFile: File, model: ModelForStyle) => void;
+  onGenerate: (referenceFile: File | null, model: ModelForStyle) => void;
   isLoading: boolean;
   sourceAspectRatio: number; // ОБЯЗАТЕЛЬНО для блокировки кроппера
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -27,8 +31,10 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   // Управляет открытием/закрытием кроппера и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileIsPresent = !!referenceFile;
+  const textIsPresent = helperPrompt.trim().length > 0;
 
-  const isReady = referenceFile && !isLoading;
+  const isReady = (referenceFile || helperPrompt.trim()) && !isLoading;
 
   // Шаг 1: Пользователь выбирает файл, открываем кроппер
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -75,7 +81,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady || !referenceFile) return;
+    if (!isReady) return; 
     onGenerate(referenceFile, selectedModel);
   };
 
@@ -95,6 +101,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
+            disabled={textIsPresent}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
           >
             {previewUrl ? 'Заменить стиль' : '+ Загрузить стиль'}
@@ -109,6 +116,11 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
                 sizes="120px"
                 className="object-contain"
               />
+              <button 
+                onClick={() => setReferenceFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать стиль"
+              >✕</button>
             </div>
           )}
           {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
@@ -133,6 +145,24 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
+            <div className="relative">
+                <textarea
+                    rows={3}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    disabled={fileIsPresent}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder={referenceFile ? "Пример: применить только цветовую палитру" : "Пример: стиль киберпанк, неоновое освещение"}
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}

@@ -2093,12 +2093,16 @@ interface BackgroundReplacerProps {
   isLoading: boolean;
   // ВАЖНО: Нам нужно знать пропорции исходной сауны, чтобы заблокировать кроппер
   sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
@@ -2112,7 +2116,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isReady = referenceFile && (targets.window || targets.door) && !isLoading;
+  const isReady = (referenceFile || helperPrompt.trim()) && (targets.window || targets.door) && !isLoading;
 
   // Шаг 1: Пользователь выбирает файл, мы открываем кроппер
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -2158,6 +2162,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
     }
   }
 
+  
   // Этот хук теперь работает с уже обрезанным файлом для маленького превью
   useEffect(() => {
     if (!referenceFile) {
@@ -2170,7 +2175,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady || !referenceFile) return;
+    if (!isReady) return; // <<< УБИРАЕМ ПРОВЕРКУ !referenceFile
     onGenerate(referenceFile, targets, selectedModel);
   };
   
@@ -2259,6 +2264,22 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
               Дверь
             </label>
           </div>
+        </div>
+        <div>
+            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите фон текстом"} />
+            <div className="relative">
+                <textarea
+                    rows={3}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}
@@ -2994,12 +3015,15 @@ import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
 import { ArrowPointer } from '../editor/ArrowPointer';
 import { UniversalCropper } from '../cropper/UniversalCropper';
+import Image from 'next/image';
 
 interface ObjectInjectorProps {
   onGenerate: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
   isLoading: boolean;
   activeImageUrl: string | null;
   sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
@@ -3007,6 +3031,8 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   const [objectFile, setObjectFile] = useState<File | null>(null);
   const [objectPreview, setObjectPreview] = useState<string | null>(null);
@@ -3107,7 +3133,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           </button>
           {objectPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-              <img src={objectPreview} alt="Object preview" className="h-full w-full object-contain" />
+              <Image src={objectPreview} alt="Object preview" fill sizes="120px" className="object-contain" />
             </div>
           )}
         </div>
@@ -3125,7 +3151,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           </button>
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
-              <img src={targetMapPreview} alt="Target map preview" className="h-full w-auto mx-auto object-contain" />
+              <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
             </div>
           )}
         </div>
@@ -3151,6 +3177,22 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               </button>
             ))}
           </div>
+        </div>
+        <div>
+            <Label title="Уточнение (необязательно)" />
+            <div className="relative">
+                <textarea
+                    rows={2}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder="Пример: поместить ведро справа от печки"
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}
@@ -3386,10 +3428,11 @@ import { ObjectInjector } from './ObjectInjector';
 import { MultiArrowEditor } from '../editor/MultiArrowEditor';
 import { Label } from '../ui/FormControls';
 import { cx } from '@/lib/utils';
+import Image from 'next/image';
 
-type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
+type ProToolsProps = Omit<SidebarProps, 'handleTabChange' | 'onGenerateBackgroundReplacement' | 'onGenerateStyleReplacement'> & {
   onGenerateBackgroundReplacement: (
-    file: File,
+    file: File | null, 
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
@@ -3399,7 +3442,7 @@ type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
     model: 'gemini' | 'seedream'
   ) => void;
   onGenerateStyleReplacement: (
-    file: File,
+    file: File | null,
     model: 'gemini' | 'seedream'
   ) => void;
   onGenerateObjectInjection: (
@@ -3421,6 +3464,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
   const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
+  const [isArrowSectionOpen, setIsArrowSectionOpen] = useState(false); // <<< новый стейт секции
 
   const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
   const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
@@ -3467,7 +3511,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
       console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
       return;
     }
-    
+
     console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
     props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
   };
@@ -3519,6 +3563,9 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateBackgroundReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
+                  helperPrompt={props.helperPrompts.background}
+                  onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
+
               />
             </div>
           )}
@@ -3540,6 +3587,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 isLoading={props.isLoading}
                 activeImageUrl={props.activeNode?.imageUrl ?? null}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.texture}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, texture: val }))}
               />
             </div>
           )}
@@ -3560,6 +3609,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateStyleReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.style}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, style: val }))}
               />
             </div>
           )}
@@ -3578,101 +3629,119 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             <div className="p-3 border-t border-gray-700/50">
               <ObjectInjector
                 onGenerate={props.onGenerateObjectInjection}
+                isLoading={props.isLoading}
                 activeImageUrl={props.activeNode?.imageUrl ?? null}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.object}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, object: val }))}
               />
             </div>
           )}
         </div>
 
-        {/* Редактор по Стрелкам */}
-        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-3 space-y-3">
-          <div>
-            <h4 className="text-sm font-medium text-cyan-400">Редактор по Стрелкам</h4>
-            <p className="text-xs text-gray-400 mt-1">Точечные правки с помощью текстовых инструкций.</p>
-          </div>
+        {/* Редактор по Стрелкам — теперь сворачиваемая секция */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsArrowSectionOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isArrowSectionOpen ? '▼' : '►'} Редактор по Стрелкам
+          </button>
 
-          {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
-          {arrowMapPreviewUrl ? (
-            <div className="space-y-3">
-              <Label title="Модель" />
-              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-                {(['gemini', 'seedream'] as const).map((model) => (
-                  <button
-                    key={model}
-                    onClick={() => setArrowEditorModel(model)}
-                    type="button"
-                    className={cx(
-                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
-                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
-                    )}
-                  >
-                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-                  </button>
-                ))}
-              </div>
+          {isArrowSectionOpen && (
+            <div className="p-3 border-t border-gray-700/50 space-y-3">
+              <p className="text-xs text-gray-400 -mt-2 mb-2">
+                Точечные правки с помощью текстовых инструкций.
+              </p>
 
-              <div>
-                <Label title="Карта инструкций (превью)" />
-                <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
-                  <img
-                    src={arrowMapPreviewUrl}
-                    alt="Arrow map preview"
-                    className="h-full w-auto mx-auto object-contain"
-                  />
+              {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
+              {arrowMapPreviewUrl ? (
+                <div className="space-y-3">
+                  <Label title="Модель" />
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                    {(['gemini', 'seedream'] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setArrowEditorModel(model)}
+                        type="button"
+                        className={cx(
+                          'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                          arrowEditorModel === model
+                            ? 'bg-cyan-600 text-white'
+                            : 'text-gray-400 hover:bg-gray-800'
+                        )}
+                      >
+                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <Label title="Карта инструкций (превью)" />
+                    <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+                      <Image
+                        src={arrowMapPreviewUrl}
+                        alt="Arrow map preview"
+                        fill
+                        sizes="150px"
+                        className="object-contain"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+                        setArrowMapPreviewUrl(null);
+                      }}
+                      className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
+                      type="button"
+                    >
+                      Изменить
+                    </button>
+                    <button
+                      onClick={handleSendArrowEdits}
+                      className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
+                      type="button"
+                    >
+                      Отправить
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
+                <div className="space-y-3">
+                  <Label title="Модель" />
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                    {(['gemini', 'seedream'] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setArrowEditorModel(model)}
+                        type="button"
+                        className={cx(
+                          'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                          arrowEditorModel === model
+                            ? 'bg-cyan-600 text-white'
+                            : 'text-gray-400 hover:bg-gray-800'
+                        )}
+                      >
+                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
-                    setArrowMapPreviewUrl(null);
-                    // если хочешь сразу возвращаться в редактор:
-                    // setIsArrowEditorOpen(true);
-                  }}
-                  className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
-                  type="button"
-                >
-                  Изменить
-                </button>
-                <button
-                  onClick={handleSendArrowEdits}
-                  className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
-                  type="button"
-                >
-                  Отправить
-                </button>
-              </div>
-            </div>
-          ) : (
-            // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
-            <div className="space-y-3">
-              <Label title="Модель" />
-              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-                {(['gemini', 'seedream'] as const).map((model) => (
                   <button
-                    key={model}
-                    onClick={() => setArrowEditorModel(model)}
                     type="button"
-                    className={cx(
-                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
-                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
-                    )}
+                    onClick={() => setIsArrowEditorOpen(true)}
+                    disabled={!props.activeNode}
+                    className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
-                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                    ✍️ Открыть редактор
                   </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsArrowEditorOpen(true)}
-                disabled={!props.activeNode}
-                className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
-              >
-                ✍️ Открыть редактор
-              </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3703,19 +3772,24 @@ import { cx } from '@/lib/utils';
 import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
 import { UniversalCropper } from '@/components/cropper/UniversalCropper';
+import Image from 'next/image';
 
 type ModelForStyle = 'gemini' | 'seedream';
 
 interface StyleTransplanterProps {
-  onGenerate: (referenceFile: File, model: ModelForStyle) => void;
+  onGenerate: (referenceFile: File | null, model: ModelForStyle) => void;
   isLoading: boolean;
   sourceAspectRatio: number; // ОБЯЗАТЕЛЬНО для блокировки кроппера
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -3726,7 +3800,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   const [cropRequest, setCropRequest] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isReady = referenceFile && !isLoading;
+  const isReady = (referenceFile || helperPrompt.trim()) && !isLoading;
 
   // Шаг 1: Пользователь выбирает файл, открываем кроппер
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -3773,7 +3847,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady || !referenceFile) return;
+    if (!isReady) return; // <<< УБИРАЕМ ПРОВЕРКУ !referenceFile
     onGenerate(referenceFile, selectedModel);
   };
 
@@ -3800,10 +3874,12 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
 
           {previewUrl && (
             <div className="mt-3 relative h-20 w-full flex items-center justify-center rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-              <img
+                <Image
                 src={previewUrl}
                 alt="Style reference preview"
-                className="h-full w-auto object-contain"
+                fill
+                sizes="120px"
+                className="object-contain"
               />
             </div>
           )}
@@ -3829,6 +3905,23 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
+            <div className="relative">
+                <textarea
+                    rows={3}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder={referenceFile ? "Пример: применить только цветовую палитру" : "Пример: стиль киберпанк, неоновое освещение"}
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}
@@ -3878,7 +3971,9 @@ interface TextureTransplanterProps {
   onGenerate: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
   isLoading: boolean;
   activeImageUrl: string | null;
-  sourceAspectRatio: number; // <<< 2. ДОБАВЛЕН ПРОПС
+  sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
@@ -3886,6 +3981,8 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
   const [textureFile, setTextureFile] = useState<File | null>(null);
@@ -4015,6 +4112,22 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         </div>
         
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+        <div>
+            <Label title="Уточнение (необязательно)" />
+            <div className="relative">
+                <textarea
+                    rows={2}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder="Пример: сделать текстуру более старой"
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
+        </div>
 
         {/* Кнопка действия */}
         <button
@@ -4706,9 +4819,9 @@ export interface SidebarProps {
   isReadyToGenerate: boolean;
   isLoading: boolean;
   onGenerate: () => void;
-  onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
+  onGenerateBackgroundReplacement: (file: File | null, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
   onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
-  onGenerateStyleReplacement: (referenceFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateStyleReplacement: (referenceFile: File | null, model: 'gemini' | 'seedream') => void;
   onGenerateObjectInjection: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
   onGenerateArrowEdits: (imageBlob: Blob, instructionsText: string, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
@@ -4926,6 +5039,13 @@ export function useImageWorkspace() {
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
 
+  const [helperPrompts, setHelperPrompts] = useState({
+    background: '',
+    style: '',
+    texture: '',
+    object: '',
+  });
+
   useEffect(() => {
     if (fileError) setError(fileError);
   }, [fileError]);
@@ -5115,9 +5235,17 @@ export function useImageWorkspace() {
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
+    let prompt: string;
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const userClarification = helperPrompts.texture.trim();
 
-    const prompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
-    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки, если что
+    if (userClarification) {
+      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
+    } else {
+      prompt = basePrompt;
+    }
+    
+    const negativePrompt = "red arrow, pointer, indicator";
 
     settingsManager.updateSeedForGeneration();
     const settings = settingsManager.getCurrentSettings(model);
@@ -5162,7 +5290,7 @@ export function useImageWorkspace() {
   };
 
   const onGenerateStyleReplacement = async (
-    referenceFile: File,
+    referenceFile: File | null,
     model: 'gemini' | 'seedream'
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
@@ -5182,9 +5310,17 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    // Наш железобетонный промпт
-    const prompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+    let prompt: string;
+    const userClarification = helperPrompts.style.trim();
 
+    if (referenceFile) {
+        const basePrompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+        prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+        prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+    } else {
+        return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+    }
     // Превращаем URL активной сауны в файл для отправки
     let sourceImageFile: File;
     try {
@@ -5200,7 +5336,9 @@ export function useImageWorkspace() {
 
     const formData = new FormData();
     formData.append("image", sourceImageFile); // Главное изображение - сауна
-    formData.append("reference_image", referenceFile); // Референс - стиль
+     if (referenceFile) {
+        formData.append("reference_image", referenceFile);
+    }
     formData.append("prompt", prompt);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
@@ -5238,7 +5376,7 @@ export function useImageWorkspace() {
   };
 
   const onGenerateBackgroundReplacement = async (
-    referenceFile: File,
+    referenceFile: File | null,
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => {
@@ -5265,9 +5403,17 @@ export function useImageWorkspace() {
     const promptTarget = targetAreas.join(" and ");
 
     if (!promptTarget) return fail("Не выбраны цели для замены фона.");
+    let prompt: string;
+        const userClarification = helperPrompts.background.trim();
 
-    const prompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
-
+        if (referenceFile) {
+            const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
+            prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+        } else if (userClarification) {
+            prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
+        } else {
+            return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+        }
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -5282,7 +5428,9 @@ export function useImageWorkspace() {
 
     const formData = new FormData();
     formData.append("image", sourceImageFile);
-    formData.append("reference_image", referenceFile);
+    if (referenceFile) {
+        formData.append("reference_image", referenceFile);
+    }
     formData.append("prompt", prompt);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
@@ -5340,9 +5488,15 @@ export function useImageWorkspace() {
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
-
-    // Наш новый, зашитый намертво промпт
-    const prompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    let prompt: string;
+    const basePrompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    const userClarification = helperPrompts.object.trim();
+    
+    if (userClarification) {
+      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
+    } else {
+      prompt = basePrompt;
+    }
     const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки
 
     settingsManager.updateSeedForGeneration();
@@ -5612,6 +5766,7 @@ export function useImageWorkspace() {
         setJsonContent(JSON.stringify(parsed, null, 2));
         setJsonError(null);
         setIsJsonViewerOpen(true);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
         setJsonContent(null);
@@ -5769,6 +5924,8 @@ export function useImageWorkspace() {
     onCancel,
     onKeyDown,
     deleteBaseResult,
+    helperPrompts,
+    setHelperPrompts,
     deleteWorkspace,
   };
 }
@@ -6095,6 +6252,7 @@ export type PersistState = {
   workspaces: { [rootNodeId: string]: GenerationNode[] };
   activeWorkspaceId: string | null;
   activeNodeId: string | null;
+  activeNodeDims: { w: number; h: number } | null;
 };
 ```
 

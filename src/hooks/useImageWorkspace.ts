@@ -67,6 +67,13 @@ export function useImageWorkspace() {
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
 
+  const [helperPrompts, setHelperPrompts] = useState({
+    background: '',
+    style: '',
+    texture: '',
+    object: '',
+  });
+
   useEffect(() => {
     if (fileError) setError(fileError);
   }, [fileError]);
@@ -256,9 +263,17 @@ export function useImageWorkspace() {
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
+    let prompt: string;
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const userClarification = helperPrompts.texture.trim();
 
-    const prompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
-    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки, если что
+    if (userClarification) {
+      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
+    } else {
+      prompt = basePrompt;
+    }
+    
+    const negativePrompt = "red arrow, pointer, indicator";
 
     settingsManager.updateSeedForGeneration();
     const settings = settingsManager.getCurrentSettings(model);
@@ -303,7 +318,7 @@ export function useImageWorkspace() {
   };
 
   const onGenerateStyleReplacement = async (
-    referenceFile: File,
+    referenceFile: File | null,
     model: 'gemini' | 'seedream'
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
@@ -323,9 +338,17 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    // Наш железобетонный промпт
-    const prompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+    let prompt: string;
+    const userClarification = helperPrompts.style.trim();
 
+    if (referenceFile) {
+        const basePrompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+        prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+        prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+    } else {
+        return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+    }
     // Превращаем URL активной сауны в файл для отправки
     let sourceImageFile: File;
     try {
@@ -341,7 +364,9 @@ export function useImageWorkspace() {
 
     const formData = new FormData();
     formData.append("image", sourceImageFile); // Главное изображение - сауна
-    formData.append("reference_image", referenceFile); // Референс - стиль
+     if (referenceFile) {
+        formData.append("reference_image", referenceFile);
+    }
     formData.append("prompt", prompt);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
@@ -379,7 +404,7 @@ export function useImageWorkspace() {
   };
 
   const onGenerateBackgroundReplacement = async (
-    referenceFile: File,
+    referenceFile: File | null,
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => {
@@ -406,9 +431,17 @@ export function useImageWorkspace() {
     const promptTarget = targetAreas.join(" and ");
 
     if (!promptTarget) return fail("Не выбраны цели для замены фона.");
+    let prompt: string;
+        const userClarification = helperPrompts.background.trim();
 
-    const prompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
-
+        if (referenceFile) {
+            const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
+            prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+        } else if (userClarification) {
+            prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
+        } else {
+            return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+        }
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -423,7 +456,9 @@ export function useImageWorkspace() {
 
     const formData = new FormData();
     formData.append("image", sourceImageFile);
-    formData.append("reference_image", referenceFile);
+    if (referenceFile) {
+        formData.append("reference_image", referenceFile);
+    }
     formData.append("prompt", prompt);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
@@ -481,9 +516,15 @@ export function useImageWorkspace() {
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
-
-    // Наш новый, зашитый намертво промпт
-    const prompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    let prompt: string;
+    const basePrompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    const userClarification = helperPrompts.object.trim();
+    
+    if (userClarification) {
+      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
+    } else {
+      prompt = basePrompt;
+    }
     const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки
 
     settingsManager.updateSeedForGeneration();
@@ -911,6 +952,8 @@ export function useImageWorkspace() {
     onCancel,
     onKeyDown,
     deleteBaseResult,
+    helperPrompts,
+    setHelperPrompts,
     deleteWorkspace,
   };
 }

@@ -13,9 +13,9 @@ import { Label } from '../ui/FormControls';
 import { cx } from '@/lib/utils';
 import Image from 'next/image';
 
-type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
+type ProToolsProps = Omit<SidebarProps, 'handleTabChange' | 'onGenerateBackgroundReplacement' | 'onGenerateStyleReplacement'> & {
   onGenerateBackgroundReplacement: (
-    file: File,
+    file: File | null, 
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
@@ -25,7 +25,7 @@ type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
     model: 'gemini' | 'seedream'
   ) => void;
   onGenerateStyleReplacement: (
-    file: File,
+    file: File | null,
     model: 'gemini' | 'seedream'
   ) => void;
   onGenerateObjectInjection: (
@@ -42,7 +42,7 @@ type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
 };
 
 export const ProTools: React.FC<ProToolsProps> = (props) => {
-  const [isEditorOpen, setIsEditorOpen] = useState(true);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
@@ -56,6 +56,15 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [arrowMapBlob, setArrowMapBlob] = useState<Blob | null>(null);
   const [arrowMapPreviewUrl, setArrowMapPreviewUrl] = useState<string | null>(null);
   const [arrowInstructions, setArrowInstructions] = useState<string>('');
+
+  const handleResetArrowEditor = () => {
+    setArrowMapBlob(null);
+    setArrowInstructions('');
+    if (arrowMapPreviewUrl) {
+      URL.revokeObjectURL(arrowMapPreviewUrl);
+      setArrowMapPreviewUrl(null);
+    }
+  };
 
   // сброс при смене активного узла
   useEffect(() => {
@@ -83,19 +92,10 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
 
   // отправка в API
   const handleSendArrowEdits = () => {
-    // ЛОВУШКА №1: Проверяем, что клик вообще сработал.
-    console.log('--- [ProTools] Клик по "Отправить" зафиксирован. ---');
-
-    // ЛОВУШКА №2: Смотрим, что у нас в руках перед выстрелом.
-    console.log('--- [ProTools] Проверяем данные:', { arrowMapBlob, arrowInstructions });
-
-    if (!arrowMapBlob || !arrowInstructions) {
-      // ЛОВУШКА №3: Если мы остановились, то почему.
+    if (!arrowMapBlob || !arrowInstructions.trim()) {
       console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
       return;
     }
-
-    console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
     props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
   };
 
@@ -146,6 +146,9 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateBackgroundReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
+                  helperPrompt={props.helperPrompts.background}
+                  onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
+
               />
             </div>
           )}
@@ -167,6 +170,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 isLoading={props.isLoading}
                 activeImageUrl={props.activeNode?.imageUrl ?? null}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.texture}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, texture: val }))}
               />
             </div>
           )}
@@ -187,6 +192,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateStyleReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.style}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, style: val }))}
               />
             </div>
           )}
@@ -208,6 +215,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 isLoading={props.isLoading}
                 activeImageUrl={props.activeNode?.imageUrl ?? null}
                 sourceAspectRatio={props.sourceAspectRatio}
+                helperPrompt={props.helperPrompts.object}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, object: val }))}
               />
             </div>
           )}
@@ -261,28 +270,21 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                         sizes="150px"
                         className="object-contain"
                       />
+                      <button 
+                        onClick={handleResetArrowEditor}
+                        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                        title="Изменить/Убрать карту"
+                      >✕</button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => {
-                        if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
-                        setArrowMapPreviewUrl(null);
-                      }}
-                      className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
-                      type="button"
-                    >
-                      Изменить
-                    </button>
-                    <button
-                      onClick={handleSendArrowEdits}
-                      className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
-                      type="button"
-                    >
-                      Отправить
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleSendArrowEdits}
+                    className="w-full text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2.5"
+                    type="button"
+                  >
+                    Применить правки
+                  </button>
                 </div>
               ) : (
                 // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===

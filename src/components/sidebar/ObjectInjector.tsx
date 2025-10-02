@@ -12,6 +12,8 @@ interface ObjectInjectorProps {
   isLoading: boolean;
   activeImageUrl: string | null;
   sourceAspectRatio: number;
+  helperPrompt: string;
+  onHelperPromptChange: (value: string) => void;
 }
 
 export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
@@ -19,6 +21,8 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio,
+  helperPrompt,
+  onHelperPromptChange,
 }) => {
   const [objectFile, setObjectFile] = useState<File | null>(null);
   const [objectPreview, setObjectPreview] = useState<string | null>(null);
@@ -120,6 +124,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           {objectPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
               <Image src={objectPreview} alt="Object preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setObjectFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать объект"
+              >✕</button>
             </div>
           )}
         </div>
@@ -138,6 +147,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
               <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setTargetMapFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать указатель"
+              >✕</button>
             </div>
           )}
         </div>
@@ -163,6 +177,22 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               </button>
             ))}
           </div>
+        </div>
+        <div>
+            <Label title="Уточнение (необязательно)" />
+            <div className="relative">
+                <textarea
+                    rows={2}
+                    maxLength={180}
+                    value={helperPrompt}
+                    onChange={(e) => onHelperPromptChange(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                    placeholder="Пример: поместить ведро справа от печки"
+                />
+                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+                    {helperPrompt.length}/180
+                </span>
+            </div>
         </div>
 
         {/* Кнопка действия */}
