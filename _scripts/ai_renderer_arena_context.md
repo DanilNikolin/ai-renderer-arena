@@ -26,7 +26,8 @@ ai-renderer-arena
 │   │   ├── cropper
 │   │   │   └── UniversalCropper.tsx
 │   │   ├── editor
-│   │   │   └── ArrowPointer.tsx
+│   │   │   ├── ArrowPointer.tsx
+│   │   │   └── MultiArrowEditor.tsx
 │   │   ├── sidebar
 │   │   │   ├── ActionButtons.tsx
 │   │   │   ├── BackgroundReplacer.tsx
@@ -38,8 +39,10 @@ ai-renderer-arena
 │   │   │   ├── ModeSwitcher.tsx
 │   │   │   ├── ModelSelector.tsx
 │   │   │   ├── ModelSettings.tsx
+│   │   │   ├── ObjectInjector.tsx
 │   │   │   ├── ProTools.tsx
 │   │   │   ├── PromptEngineer.tsx
+│   │   │   ├── StyleTransplanter.tsx
 │   │   │   └── TextureTransplanter.tsx
 │   │   ├── ui
 │   │   │   └── FormControls.tsx
@@ -834,10 +837,22 @@ import { Canvas } from "./workspace/Canvas";
 export default function ImageWorkspace() {
   const workspaceState = useImageWorkspace();
 
-  // Вычисляем соотношение сторон исходного изображения
-  const sourceAspectRatio = workspaceState.imageInfo
+  // --- НОВАЯ ДИНАМИЧЕСКАЯ ЛОГИКА ---
+  // Пропорции для PRO-режима (берутся из активной ноды)
+  const proAspectRatio = workspaceState.activeNodeDims
+    ? workspaceState.activeNodeDims.w / workspaceState.activeNodeDims.h
+    : null;
+  
+  // Пропорции для BASE-режима (берутся из исходного скетча)
+  const baseAspectRatio = workspaceState.imageInfo
     ? workspaceState.imageInfo.w / workspaceState.imageInfo.h
-    : 16 / 9; // Запасной вариант, если инфо еще нет
+    : 16 / 9; // Запасной вариант
+
+  // Выбираем, какие пропорции использовать, в зависимости от активной вкладки
+  const sourceAspectRatio = workspaceState.activeTab === 'PRO' && proAspectRatio
+    ? proAspectRatio
+    : baseAspectRatio;
+  // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
   return (
     <div
@@ -852,7 +867,6 @@ export default function ImageWorkspace() {
     </div>
   );
 }
-
 ```
 
 ---
@@ -1309,13 +1323,12 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
 ## Файл: `src/components/editor/ArrowPointer.tsx`
 
 ```typescript
-// src/components/editor/ArrowPointer.tsx
-import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 type Vec2 = { x: number; y: number };
 
-// SVG-иконка жирной красной стрелки. Встроена прямо сюда, чтобы не было лишних файлов.
+// SVG-иконка жирной красной стрелки (встроенная).
 const ArrowSvg = ({ rotation }: { rotation: number }) => (
   <svg
     width="100%"
@@ -1338,7 +1351,6 @@ const ArrowSvg = ({ rotation }: { rotation: number }) => (
   </svg>
 );
 
-
 export const ArrowPointer: React.FC<{
   imageSrc: string;
   onConfirm: (blob: Blob) => void;
@@ -1346,8 +1358,9 @@ export const ArrowPointer: React.FC<{
 }> = ({ imageSrc, onConfirm, onCancel }) => {
   const [isMounted, setIsMounted] = useState(false);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
-  
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const [arrowPos, setArrowPos] = useState<Vec2>({ x: 150, y: 150 });
   const [arrowSize, setArrowSize] = useState(100);
   const [arrowRotation, setArrowRotation] = useState(0);
@@ -1360,45 +1373,53 @@ export const ArrowPointer: React.FC<{
     image.onload = () => setImg(image);
   }, [imageSrc]);
 
-  // Отрисовка
-  const draw = () => {
+  // Отрисовка: стабильная функция через useCallback
+  const draw = useCallback(() => {
     if (!img || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Подгоняем размер canvas под изображение
-    const parent = canvas.parentElement!;
-    const parentRect = parent.getBoundingClientRect();
-    const imgAspectRatio = img.width / img.height;
-    const parentAspectRatio = parentRect.width / parentRect.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    let cssWidth, cssHeight; // Используем переменные для CSS размеров
-    if (imgAspectRatio > parentAspectRatio) {
+    // Подгоняем CSS-размер под контейнер, но внутренний размер — нативный (качество)
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    const parentRect = parent.getBoundingClientRect();
+    if (parentRect.width === 0 || parentRect.height === 0) return;
+
+    const imgAspect = img.width / img.height;
+    const parentAspect = parentRect.width / parentRect.height;
+
+    let cssWidth: number;
+    let cssHeight: number;
+
+    if (imgAspect > parentAspect) {
       cssWidth = parentRect.width;
-      cssHeight = parentRect.width / imgAspectRatio;
+      cssHeight = parentRect.width / imgAspect;
     } else {
       cssHeight = parentRect.height;
-      cssWidth = parentRect.height * imgAspectRatio;
+      cssWidth = parentRect.height * imgAspect;
     }
 
-    // Задаем и внутренний размер (для качества), и CSS размер (для верстки)
-    canvas.width = img.width; // <<< ЗАДАЕМ МАКСИМАЛЬНОЕ КАЧЕСТВО
+    // Внутреннее разрешение = оригинал (чётко), CSS — под экран
+    canvas.width = img.width;
     canvas.height = img.height;
-    
-    canvas.style.width = `${cssWidth}px`;   // <<< ЗАСТАВЛЯЕМ ВПИСАТЬСЯ В ЭКРАН
-    canvas.style.height = `${cssHeight}px`; // <<< ЗАСТАВЛЯЕМ ВПИСАТЬСЯ В ЭКРАН
+
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  };
+  }, [img]);
 
+  // Первый рендер + resize на стабильную draw
   useLayoutEffect(() => {
     draw();
     window.addEventListener('resize', draw);
     return () => window.removeEventListener('resize', draw);
-  }, [img]);
-  
-  // Клавиатура
+  }, [draw]);
+
+  // Клавиатура: Escape = отмена
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
@@ -1407,59 +1428,68 @@ export const ArrowPointer: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
 
+  // Подтверждение — соберём PNG с отрисованной стрелкой на полном разрешении
   const handleConfirm = () => {
     if (!img) return;
+
     const offscreenCanvas = document.createElement('canvas');
     offscreenCanvas.width = img.width;
     offscreenCanvas.height = img.height;
-    const ctx = offscreenCanvas.getContext('2d')!;
+    const ctx = offscreenCanvas.getContext('2d');
+    if (!ctx) return;
 
-    // 1. Рисуем оригинал
+    // 1) Бэкграунд: исходник
     ctx.drawImage(img, 0, 0);
 
-    // 2. Рисуем стрелку с ПРАВИЛЬНЫМ МАСШТАБИРОВАНИЕМ
+    // 2) Стрелка (корректно масштабируем относительно внутреннего размера)
     const canvas = canvasRef.current!;
-    const scaleFactor = img.width / canvas.width;
+    const scaleFactor = img.width / canvas.width; // соотн. экран/оригинал
 
     ctx.save();
-    // Перемещаем начало координат в центр стрелки на исходном изображении
+    // Центр стрелки в координатах исходника
     ctx.translate(arrowPos.x * scaleFactor, arrowPos.y * scaleFactor);
-    // Поворачиваем холст
-    ctx.rotate(arrowRotation * Math.PI / 180);
-    
-    // <<< ВОТ КЛЮЧЕВОЙ ФИКС: МАСШТАБИРУЕМ САМ ХОЛСТ
+    ctx.rotate((arrowRotation * Math.PI) / 180);
+
+    // viewBox 150x90 -> масштаб относительно ширины 150
     const arrowRenderSize = arrowSize * scaleFactor;
-    // viewBox у твоей стрелки 150x90. Будем масштабировать относительно ширины 150.
-    const pathScale = arrowRenderSize / 150; 
+    const pathScale = arrowRenderSize / 150;
     ctx.scale(pathScale, pathScale);
 
-    // Смещаем холст так, чтобы центр фигуры (75, 45) оказался в начале координат
-    ctx.translate(-75, -45); 
-    
-    // Задаем стили
+    // Центр фигуры (75,45) — в (0,0)
+    ctx.translate(-75, -45);
+
+    // Стили
     ctx.fillStyle = '#FF0000';
     ctx.strokeStyle = '#6D0000';
-    ctx.lineWidth = 2.3 / pathScale; // Компенсируем масштабирование для сохранения толщины линии
+    ctx.lineWidth = 2.3 / pathScale; // толщину сохраняем визуально
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
     ctx.shadowBlur = 10;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 4;
-    
-    // Рисуем твою фигуру
-    const path = new Path2D("M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z");
+
+    // Рисуем path
+    const path = new Path2D('M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z');
     ctx.fill(path);
     ctx.stroke(path);
     ctx.restore();
 
-    offscreenCanvas.toBlob(blob => {
-      if (blob) onConfirm(blob);
-    }, 'image/png');
+    offscreenCanvas.toBlob(
+      (blob) => {
+        if (blob) onConfirm(blob);
+      },
+      'image/png',
+      1
+    );
   };
-  
+
+  // Модалка: фиксируем скролл
   useEffect(() => {
     setIsMounted(true);
+    const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = 'auto'; };
+    return () => {
+      document.body.style.overflow = prev || 'auto';
+    };
   }, []);
 
   if (!isMounted) return null;
@@ -1469,11 +1499,21 @@ export const ArrowPointer: React.FC<{
       <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
         <p className="text-slate-200 text-sm">Перетащи стрелку, чтобы указать цель</p>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700">Отмена</button>
-          <button onClick={handleConfirm} className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400">Подтвердить</button>
+          <button
+            onClick={onCancel}
+            className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
+          >
+            Подтвердить
+          </button>
         </div>
       </div>
-      
+
       <div className="flex-1 min-h-0 relative flex items-center justify-center">
         <canvas ref={canvasRef} className="max-w-full max-h-full block" />
         <div
@@ -1485,14 +1525,22 @@ export const ArrowPointer: React.FC<{
             height: arrowSize,
             transform: 'translate(-50%, -50%)',
           }}
-          onPointerDown={e => {
+          onPointerDown={(e) => {
             const el = e.currentTarget;
             el.setPointerCapture(e.pointerId);
+
             const onMove = (me: PointerEvent) => {
-              setArrowPos(p => ({ x: p.x + me.movementX, y: p.y + me.movementY }));
+              setArrowPos((p) => ({ x: p.x + me.movementX, y: p.y + me.movementY }));
             };
+
+            const onUp = () => {
+              el.onpointermove = null;
+              el.onpointerup = null;
+              el.releasePointerCapture(e.pointerId);
+            };
+
             el.onpointermove = onMove;
-            el.onpointerup = () => el.onpointermove = null;
+            el.onpointerup = onUp;
           }}
         >
           <ArrowSvg rotation={arrowRotation} />
@@ -1500,13 +1548,447 @@ export const ArrowPointer: React.FC<{
       </div>
 
       <div className="flex-shrink-0 mt-2 flex items-center justify-center gap-4 bg-slate-900/50 p-2 rounded-lg">
-        <label className="text-xs text-slate-300">Размер: <input type="range" min="30" max="300" value={arrowSize} onChange={e => setArrowSize(Number(e.target.value))} className="accent-cyan-500" /></label>
-        <label className="text-xs text-slate-300">Поворот: <input type="range" min="0" max="359" value={arrowRotation} onChange={e => setArrowRotation(Number(e.target.value))} className="accent-cyan-500" /></label>
+        <label className="text-xs text-slate-300">
+          Размер:{' '}
+          <input
+            type="range"
+            min="30"
+            max="300"
+            value={arrowSize}
+            onChange={(e) => setArrowSize(Number(e.target.value))}
+            className="accent-cyan-500"
+          />
+        </label>
+        <label className="text-xs text-slate-300">
+          Поворот:{' '}
+          <input
+            type="range"
+            min="0"
+            max="359"
+            value={arrowRotation}
+            onChange={(e) => setArrowRotation(Number(e.target.value))}
+            className="accent-cyan-500"
+          />
+        </label>
       </div>
     </div>,
     document.body
   );
 };
+
+```
+
+---
+
+## Файл: `src/components/editor/MultiArrowEditor.tsx`
+
+```typescript
+import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+
+// Тип для описания одной стрелки с инструкцией
+type ArrowInstruction = {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
+  rotation: number;
+  text: string;
+};
+
+const TOKEN_LIMIT_CHARS = 100; // ~20-25 токенов
+
+// SVG-иконка. Та же, что и в ArrowPointer
+const ArrowSvg = ({ rotation }: { rotation: number }) => (
+  <svg
+    width="100%"
+    height="100%"
+    viewBox="0 0 150 90"
+    preserveAspectRatio="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{
+      transform: `rotate(${rotation}deg)`,
+      filter: 'drop-shadow(2px 4px 6px rgba(0,0,0,0.7))',
+      pointerEvents: 'none',
+    }}
+  >
+    <path
+      d="M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z"
+      fill="#FF0000"
+      stroke="#6D0000"
+      strokeWidth="2.3"
+    />
+  </svg>
+);
+
+export const MultiArrowEditor: React.FC<{
+  imageSrc: string;
+  onConfirm: (imageBlob: Blob, instructionsText: string) => void;
+  onCancel: () => void;
+}> = ({ imageSrc, onConfirm, onCancel }) => {
+  const [isMounted, setIsMounted] = useState(false);
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [arrows, setArrows] = useState<ArrowInstruction[]>([]);
+  const [selectedArrowId, setSelectedArrowId] = useState<string | null>(null);
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+
+  const selectedArrow = arrows.find((a) => a.id === selectedArrowId) || null;
+
+  // --- Загрузка изображения ---
+  useEffect(() => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = imageSrc;
+    image.onload = () => setImg(image);
+  }, [imageSrc]);
+
+  // --- Отрисовка: стабильная функция через useCallback ---
+  const draw = useCallback(() => {
+    if (!img || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    const parentRect = parent.getBoundingClientRect();
+    if (parentRect.width === 0 || parentRect.height === 0) return;
+
+    const imgAspect = img.width / img.height;
+    const parentAspect = parentRect.width / parentRect.height;
+
+    let cssWidth: number;
+    let cssHeight: number;
+
+    if (imgAspect > parentAspect) {
+      cssWidth = parentRect.width;
+      cssHeight = parentRect.width / imgAspect;
+    } else {
+      cssHeight = parentRect.height;
+      cssWidth = parentRect.height * imgAspect;
+    }
+
+    // Внутреннее разрешение = оригинал (качество), CSS — под экран
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  }, [img]);
+
+  // Первый рендер и подписка на resize — на стабильную draw
+  useLayoutEffect(() => {
+    draw();
+    window.addEventListener('resize', draw);
+    return () => window.removeEventListener('resize', draw);
+  }, [draw]);
+
+  // Клавиатура: Escape = отмена
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  // --- Управление стрелками ---
+  const updateArrow = (id: string, updates: Partial<ArrowInstruction>) => {
+    setArrows((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
+  };
+
+  const addArrow = () => {
+    if (arrows.length >= 5) return;
+
+    const parent = canvasRef.current?.parentElement;
+    const parentRect = parent?.getBoundingClientRect();
+    const centerX = (parentRect?.width ?? 300) / 2;
+    const centerY = (parentRect?.height ?? 300) / 2;
+
+    const newArrow: ArrowInstruction = {
+      id: `arrow_${Date.now()}`,
+      x: centerX,
+      y: centerY,
+      size: 100,
+      rotation: 0,
+      text: '',
+    };
+
+    setArrows((prev) => [...prev, newArrow]);
+    setSelectedArrowId(newArrow.id);
+  };
+
+  const deleteSelectedArrow = () => {
+    if (!selectedArrowId) return;
+    setArrows((prev) => prev.filter((a) => a.id !== selectedArrowId));
+    setSelectedArrowId(null);
+  };
+
+  const handleTextChange = (id: string, newText: string) => {
+    if (newText.length > TOKEN_LIMIT_CHARS) return;
+    updateArrow(id, { text: newText });
+  };
+
+  // --- Drag-n-Drop ---
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const el = e.currentTarget as HTMLDivElement;
+    el.setPointerCapture(e.pointerId);
+
+    setSelectedArrowId(id);
+
+    const targetRect = el.getBoundingClientRect();
+    const parentRect = el.parentElement!.getBoundingClientRect();
+
+    const xInParent = targetRect.left - parentRect.left;
+    const yInParent = targetRect.top - parentRect.top;
+
+    const offsetX = e.clientX - parentRect.left - xInParent;
+    const offsetY = e.clientY - parentRect.top - yInParent;
+
+    dragRef.current = { id, offsetX, offsetY };
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const parentRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const newX = e.clientX - parentRect.left - dragRef.current.offsetX;
+    const newY = e.clientY - parentRect.top - dragRef.current.offsetY;
+
+    updateArrow(dragRef.current.id, { x: newX, y: newY });
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+  };
+
+  // --- Подтверждение: «запекаем» стрелки и текст в PNG ---
+  const handleConfirm = () => {
+    if (!img || !canvasRef.current) return;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = img.width;
+    offscreen.height = img.height;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) return;
+
+    // фон
+    ctx.drawImage(img, 0, 0);
+
+    // scale факторы между экранным canvas и исходником
+    const rect = canvasRef.current.getBoundingClientRect();
+    const scaleX = img.width / rect.width;
+    const scaleY = img.height / rect.height;
+
+    const instructions: string[] = [];
+
+    arrows.forEach((arrow) => {
+      if (arrow.text.trim()) instructions.push(arrow.text.trim());
+
+      // экранные координаты → координаты исходника
+      const realX = arrow.x * scaleX;
+      const realY = arrow.y * scaleY;
+
+      // size масштабируем по X (viewBox по ширине 150)
+      const realSize = arrow.size * scaleX;
+
+      // Стрелка
+      ctx.save();
+      ctx.translate(realX + realSize / 2, realY + realSize / 2);
+      ctx.rotate((arrow.rotation * Math.PI) / 180);
+
+      const pathScale = realSize / 150; // viewBox width = 150
+      ctx.scale(pathScale, pathScale);
+      ctx.translate(-75, -45); // центр фигуры (75,45) в (0,0)
+
+      const path = new Path2D('M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z');
+      ctx.fillStyle = '#FF0000';
+      ctx.strokeStyle = '#6D0000';
+      ctx.lineWidth = 2.3 / pathScale;
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 4;
+
+      ctx.fill(path);
+      ctx.stroke(path);
+      ctx.restore();
+
+      // Текст под стрелкой
+      if (arrow.text.trim()) {
+        ctx.save();
+        // Размер шрифта — из экранных ~20px, но в координатах исходника
+        const fontSize = Math.max(20 * scaleX, 18);
+        ctx.font = `bold ${Math.round(fontSize)}px Arial`;
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = Math.max(2 * scaleX, 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textX = realX + realSize / 2;
+        const textY = realY + realSize * 1.25;
+
+        ctx.strokeText(arrow.text, textX, textY);
+        ctx.fillText(arrow.text, textX, textY);
+        ctx.restore();
+      }
+    });
+
+    offscreen.toBlob(
+      (blob) => {
+        if (blob) onConfirm(blob, instructions.join(', '));
+      },
+      'image/png',
+      1
+    );
+  };
+
+  // Модалка: блокируем скролл body
+  useEffect(() => {
+    setIsMounted(true);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev || 'auto';
+    };
+  }, []);
+
+  if (!isMounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col p-4 bg-black/80 backdrop-blur-sm">
+      {/* Верхняя панель */}
+      <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-4">
+          <p className="text-slate-200 text-sm">Расставьте до 5 указателей с инструкциями</p>
+          <button
+            onClick={addArrow}
+            disabled={arrows.length >= 5}
+            className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:bg-gray-800 disabled:text-gray-500"
+          >
+            + Добавить стрелку ({arrows.length}/5)
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
+          >
+            Подтвердить
+          </button>
+        </div>
+      </div>
+
+      {/* Рабочая область */}
+      <div
+        className="flex-1 min-h-0 relative"
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+      >
+        <div className="relative w-full h-full flex items-center justify-center">
+          <canvas ref={canvasRef} className="max-w-full max-h-full block" />
+          {arrows.map((arrow) => (
+            <div
+              key={arrow.id}
+              className="absolute touch-none"
+              style={{
+                left: arrow.x,
+                top: arrow.y,
+                width: arrow.size,
+                height: arrow.size,
+                border: selectedArrowId === arrow.id ? '2px dashed #06b6d4' : 'none',
+                borderRadius: '4px',
+                cursor: 'move',
+                transform: `translate(-50%, -50%)`,
+              }}
+              onPointerDown={(e) => onPointerDown(e, arrow.id)}
+            >
+              <div style={{ width: arrow.size, height: arrow.size }}>
+                <ArrowSvg rotation={arrow.rotation} />
+                <textarea
+                  value={arrow.text}
+                  onChange={(e) => handleTextChange(arrow.id, e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  placeholder="Инструкция..."
+                  maxLength={TOKEN_LIMIT_CHARS}
+                  className="absolute top-[105%] left-1/2 -translate-x-1/2 w-[120%] min-h-[40px] p-1 text-center bg-black/60 text-white text-xs rounded-md border border-cyan-500/50 resize-none"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Нижняя панель */}
+      <div className="flex-shrink-0 mt-2 h-16 flex items-center justify-center gap-6 bg-slate-900/50 p-2 rounded-lg">
+        {selectedArrow ? (
+          <>
+            <label className="text-xs text-slate-300">
+              Размер:{' '}
+              <input
+                type="range"
+                min="30"
+                max="300"
+                value={selectedArrow.size}
+                onChange={(e) => updateArrow(selectedArrow.id, { size: Number(e.target.value) })}
+                className="w-32 accent-cyan-500"
+              />
+            </label>
+            <label className="text-xs text-slate-300">
+              Поворот:{' '}
+              <input
+                type="range"
+                min="0"
+                max="359"
+                value={selectedArrow.rotation}
+                onChange={(e) =>
+                  updateArrow(selectedArrow.id, { rotation: Number(e.target.value) })
+                }
+                className="w-32 accent-cyan-500"
+              />
+            </label>
+            <button
+              onClick={deleteSelectedArrow}
+              className="rounded bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+            >
+              Удалить
+            </button>
+          </>
+        ) : (
+          <p className="text-xs text-gray-500">Выберите стрелку, чтобы изменить её</p>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 ```
 
 ---
@@ -2502,6 +2984,213 @@ export const ModeSwitcher: React.FC<ModeSwitcherProps> = ({ activeTab, handleTab
 
 ---
 
+## Файл: `src/components/sidebar/ObjectInjector.tsx`
+
+```typescript
+// src/components/sidebar/ObjectInjector.tsx
+import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import { cx } from '@/lib/utils';
+import { ACCEPTED_FILE_TYPES } from '@/lib/types';
+import { Label } from '../ui/FormControls';
+import { ArrowPointer } from '../editor/ArrowPointer';
+import { UniversalCropper } from '../cropper/UniversalCropper';
+
+interface ObjectInjectorProps {
+  onGenerate: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
+  isLoading: boolean;
+  activeImageUrl: string | null;
+  sourceAspectRatio: number;
+}
+
+export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
+  onGenerate,
+  isLoading,
+  activeImageUrl,
+  sourceAspectRatio,
+}) => {
+  const [objectFile, setObjectFile] = useState<File | null>(null);
+  const [objectPreview, setObjectPreview] = useState<string | null>(null);
+  const [targetMapFile, setTargetMapFile] = useState<File | null>(null);
+  const [targetMapPreview, setTargetMapPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [isPointerEditorOpen, setIsPointerEditorOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropRequest, setCropRequest] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'gemini' | 'seedream'>('gemini');
+
+  const isReady = objectFile && targetMapFile && !isLoading;
+
+  useEffect(() => {
+    setObjectFile(null);
+    setTargetMapFile(null);
+  }, [activeImageUrl]);
+
+  useEffect(() => {
+    if (!objectFile) {
+      setObjectPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(objectFile);
+    setObjectPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [objectFile]);
+
+  useEffect(() => {
+    if (!targetMapFile) {
+      setTargetMapPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(targetMapFile);
+    setTargetMapPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [targetMapFile]);
+  
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+
+    if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      return;
+    }
+    setError(null);
+    
+    const url = URL.createObjectURL(file);
+    setCropRequest(url);
+  };
+
+  const handleCropConfirm = (croppedBlob: Blob) => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+
+    const croppedFile = new File([croppedBlob], "object_crop.png", { type: "image/png" });
+    setObjectFile(croppedFile);
+  };
+
+  const handleCropCancel = () => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+  };
+  
+  const handlePointerConfirm = (blob: Blob) => {
+    const file = new File([blob], 'target_map.png', { type: 'image/png' });
+    setTargetMapFile(file);
+    setIsPointerEditorOpen(false);
+  };
+
+  const handleSubmit = () => {
+    if (!isReady || !targetMapFile || !objectFile) return;
+    onGenerate(targetMapFile, objectFile, selectedModel);
+  };
+
+  return (
+    <>
+      <div className="space-y-4 pt-3">
+        {/* Блок 1: Загрузка Объекта */}
+        <div>
+          <Label title="1. Загрузите объект" />
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept={ACCEPTED_FILE_TYPES.join(',')}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+          >
+            {objectPreview ? 'Заменить объект' : '+ Выбрать объект'}
+          </button>
+          {objectPreview && (
+            <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+              <img src={objectPreview} alt="Object preview" className="h-full w-full object-contain" />
+            </div>
+          )}
+        </div>
+
+        {/* Блок 2: Указание Цели */}
+        <div>
+          <Label title="2. Укажите место на фото" />
+          <button
+            type="button"
+            onClick={() => setIsPointerEditorOpen(true)}
+            disabled={!activeImageUrl}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+          >
+            {targetMapPreview ? 'Изменить указатель' : '🎯 Поставить указатель'}
+          </button>
+           {targetMapPreview && (
+            <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+              <img src={targetMapPreview} alt="Target map preview" className="h-full w-auto mx-auto object-contain" />
+            </div>
+          )}
+        </div>
+        
+        {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+
+        {/* Блок Выбора Модели */}
+        <div>
+          <Label title="Модель" />
+          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+            {(['gemini', 'seedream'] as const).map(model => (
+              <button
+                key={model}
+                onClick={() => setSelectedModel(model)}
+                className={cx(
+                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                  selectedModel === model
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-gray-400 hover:bg-gray-800'
+                )}
+              >
+                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Кнопка действия */}
+        <button
+          onClick={handleSubmit}
+          disabled={!isReady}
+          className={cx(
+            "w-full text-sm font-semibold py-2.5 rounded-lg transition",
+            isReady
+              ? "bg-cyan-600 hover:bg-cyan-500 text-white"
+              : "bg-gray-700 text-gray-400 cursor-not-allowed"
+          )}
+        >
+          {isLoading ? "Обработка..." : "Внедрить Объект"}
+        </button>
+      </div>
+
+      {isPointerEditorOpen && activeImageUrl && (
+        <ArrowPointer
+          imageSrc={activeImageUrl}
+          onConfirm={handlePointerConfirm}
+          onCancel={() => setIsPointerEditorOpen(false)}
+        />
+      )}
+
+      {cropRequest && (
+        <UniversalCropper
+          imageSrc={cropRequest}
+          aspectRatio={sourceAspectRatio}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
+    </>
+  );
+};
+```
+
+---
+
 ## Файл: `src/components/sidebar/PromptEngineer.tsx`
 
 ```typescript
@@ -2685,27 +3374,103 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
 
 ```typescript
 // src/components/sidebar/ProTools.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { SidebarProps } from '../workspace/Sidebar.types';
+
 import { InstructionEditor } from './InstructionEditor';
 import { TextureTransplanter } from './TextureTransplanter';
-import { BackgroundReplacer } from './BackgroundReplacer'; 
+import { BackgroundReplacer } from './BackgroundReplacer';
+import { StyleTransplanter } from './StyleTransplanter';
+import { ObjectInjector } from './ObjectInjector';
 
+import { MultiArrowEditor } from '../editor/MultiArrowEditor';
+import { Label } from '../ui/FormControls';
+import { cx } from '@/lib/utils';
 
-// ProTools теперь должен знать о новой функции, которую он будет передавать
 type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
   onGenerateBackgroundReplacement: (
     file: File,
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
-  sourceAspectRatio: number; // <-- ДОБАВЛЕНО
+  onGenerateTextureReplacement: (
+    targetMapFile: File,
+    textureFile: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateStyleReplacement: (
+    file: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateObjectInjection: (
+    targetMapFile: File,
+    objectFile: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateArrowEdits: (
+    imageBlob: Blob,
+    instructionsText: string,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  sourceAspectRatio: number;
 };
 
 export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isEditorOpen, setIsEditorOpen] = useState(true);
-  // <<< 2. Добавляем стейт для нового "баяна"
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
+  const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
+  const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
+  const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
+
+  const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
+  const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
+
+  // предпросмотр карты стрелок
+  const [arrowMapBlob, setArrowMapBlob] = useState<Blob | null>(null);
+  const [arrowMapPreviewUrl, setArrowMapPreviewUrl] = useState<string | null>(null);
+  const [arrowInstructions, setArrowInstructions] = useState<string>('');
+
+  // сброс при смене активного узла
+  useEffect(() => {
+    setArrowMapBlob(null);
+    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    setArrowMapPreviewUrl(null);
+    setArrowInstructions('');
+  }, [props.activeNode?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // очистка URL при размонтировании/смене превью
+  useEffect(() => {
+    return () => {
+      if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    };
+  }, [arrowMapPreviewUrl]);
+
+  // получаем из редактора blob + текст
+  const handleArrowEditorConfirm = (imageBlob: Blob, instructionsText: string) => {
+    setArrowMapBlob(imageBlob);
+    setArrowInstructions(instructionsText);
+    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    setArrowMapPreviewUrl(URL.createObjectURL(imageBlob));
+    setIsArrowEditorOpen(false);
+  };
+
+  // отправка в API
+  const handleSendArrowEdits = () => {
+    // ЛОВУШКА №1: Проверяем, что клик вообще сработал.
+    console.log('--- [ProTools] Клик по "Отправить" зафиксирован. ---');
+
+    // ЛОВУШКА №2: Смотрим, что у нас в руках перед выстрелом.
+    console.log('--- [ProTools] Проверяем данные:', { arrowMapBlob, arrowInstructions });
+
+    if (!arrowMapBlob || !arrowInstructions) {
+      // ЛОВУШКА №3: Если мы остановились, то почему.
+      console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
+      return;
+    }
+    
+    console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
+    props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
+  };
 
   return (
     <div className="space-y-3">
@@ -2719,11 +3484,11 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           </button>
         </div>
       )}
-      
+
       <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
 
       <div className="space-y-2">
-        {/* Блок 1: Правка по инструкции (без изменений) */}
+        {/* Правка по инструкции */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -2739,7 +3504,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* <<< 3. НАЧАЛО: Наш новый блок "Замена Фона" */}
+        {/* Замена Фона */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -2758,31 +3523,339 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             </div>
           )}
         </div>
-    
-        {/* <<< 2. НАЧАЛО: Наш новый блок "Замена Текстуры" */}
+
+        {/* Замена Текстуры */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
-            // onClick и стейт можно будет добавить позже для сворачивания
+            onClick={() => setIsTextureTransplanterOpen((v) => !v)}
             className="w-full text-left text-sm font-medium text-cyan-400 p-3"
           >
-            ▼ Замена Текстуры
+            {isTextureTransplanterOpen ? '▼' : '►'} Замена Текстуры
           </button>
-          <div className="p-3 border-t border-gray-700/50">
-            <TextureTransplanter
-              onGenerate={props.onGenerateTextureReplacement}
-              isLoading={props.isLoading}
-              activeImageUrl={props.activeNode?.imageUrl ?? null}
-              sourceAspectRatio={props.sourceAspectRatio}
-            />
+          {isTextureTransplanterOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <TextureTransplanter
+                onGenerate={props.onGenerateTextureReplacement}
+                isLoading={props.isLoading}
+                activeImageUrl={props.activeNode?.imageUrl ?? null}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Замена Стиля */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsStyleTransplanterOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isStyleTransplanterOpen ? '▼' : '►'} Замена Стиля
+          </button>
+          {isStyleTransplanterOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <StyleTransplanter
+                onGenerate={props.onGenerateStyleReplacement}
+                isLoading={props.isLoading}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Внедрение Объекта */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsObjectInjectorOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта
+          </button>
+          {isObjectInjectorOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <ObjectInjector
+                onGenerate={props.onGenerateObjectInjection}
+                activeImageUrl={props.activeNode?.imageUrl ?? null}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Редактор по Стрелкам */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-3 space-y-3">
+          <div>
+            <h4 className="text-sm font-medium text-cyan-400">Редактор по Стрелкам</h4>
+            <p className="text-xs text-gray-400 mt-1">Точечные правки с помощью текстовых инструкций.</p>
+          </div>
+
+          {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
+          {arrowMapPreviewUrl ? (
+            <div className="space-y-3">
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map((model) => (
+                  <button
+                    key={model}
+                    onClick={() => setArrowEditorModel(model)}
+                    type="button"
+                    className={cx(
+                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <Label title="Карта инструкций (превью)" />
+                <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+                  <img
+                    src={arrowMapPreviewUrl}
+                    alt="Arrow map preview"
+                    className="h-full w-auto mx-auto object-contain"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+                    setArrowMapPreviewUrl(null);
+                    // если хочешь сразу возвращаться в редактор:
+                    // setIsArrowEditorOpen(true);
+                  }}
+                  className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
+                  type="button"
+                >
+                  Изменить
+                </button>
+                <button
+                  onClick={handleSendArrowEdits}
+                  className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
+                  type="button"
+                >
+                  Отправить
+                </button>
+              </div>
+            </div>
+          ) : (
+            // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
+            <div className="space-y-3">
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map((model) => (
+                  <button
+                    key={model}
+                    onClick={() => setArrowEditorModel(model)}
+                    type="button"
+                    className={cx(
+                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsArrowEditorOpen(true)}
+                disabled={!props.activeNode}
+                className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+              >
+                ✍️ Открыть редактор
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Портал стрелочного редактора */}
+      {isArrowEditorOpen && props.activeNode && (
+        <MultiArrowEditor
+          imageSrc={props.activeNode.imageUrl}
+          onCancel={() => setIsArrowEditorOpen(false)}
+          onConfirm={handleArrowEditorConfirm}
+        />
+      )}
+    </div>
+  );
+};
+
+```
+
+---
+
+## Файл: `src/components/sidebar/StyleTransplanter.tsx`
+
+```typescript
+// src/components/sidebar/StyleTransplanter.tsx
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import { cx } from '@/lib/utils';
+import { ACCEPTED_FILE_TYPES } from '@/lib/types';
+import { Label } from '../ui/FormControls';
+import { UniversalCropper } from '@/components/cropper/UniversalCropper';
+
+type ModelForStyle = 'gemini' | 'seedream';
+
+interface StyleTransplanterProps {
+  onGenerate: (referenceFile: File, model: ModelForStyle) => void;
+  isLoading: boolean;
+  sourceAspectRatio: number; // ОБЯЗАТЕЛЬНО для блокировки кроппера
+}
+
+export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
+  onGenerate,
+  isLoading,
+  sourceAspectRatio,
+}) => {
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelForStyle>('gemini');
+
+  // Управляет открытием/закрытием кроппера и хранит URL сырого файла
+  const [cropRequest, setCropRequest] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isReady = referenceFile && !isLoading;
+
+  // Шаг 1: Пользователь выбирает файл, открываем кроппер
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      return;
+    }
+    setError(null);
+
+    const url = URL.createObjectURL(file);
+    setCropRequest(url);
+  };
+
+  // Шаг 2: Кроппер отработал, получаем готовый Blob
+  const handleCropConfirm = (croppedBlob: Blob) => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+
+    const croppedFile = new File([croppedBlob], "style_crop.png", { type: "image/png" });
+    setReferenceFile(croppedFile);
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+  
+  // Шаг 2.1: Пользователь отменил кроп
+  const handleCropCancel = () => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // Хук для маленького превью уже обрезанного файла
+  useEffect(() => {
+    if (!referenceFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(referenceFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [referenceFile]);
+
+  const handleSubmit = () => {
+    if (!isReady || !referenceFile) return;
+    onGenerate(referenceFile, selectedModel);
+  };
+
+  return (
+    <>
+      <div className="space-y-4 pt-3">
+        {/* Блок загрузки */}
+        <div>
+          <Label title="Референс стиля" />
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept={ACCEPTED_FILE_TYPES.join(',')}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+          >
+            {previewUrl ? 'Заменить стиль' : '+ Загрузить стиль'}
+          </button>
+
+          {previewUrl && (
+            <div className="mt-3 relative h-20 w-full flex items-center justify-center rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+              <img
+                src={previewUrl}
+                alt="Style reference preview"
+                className="h-full w-auto object-contain"
+              />
+            </div>
+          )}
+          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+        </div>
+
+        {/* Блок выбора модели */}
+        <div>
+          <Label title="Модель" />
+          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+            {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
+              <button
+                key={model}
+                onClick={() => setSelectedModel(model)}
+                className={cx(
+                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                  selectedModel === model
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-gray-400 hover:bg-gray-800'
+                )}
+              >
+                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+              </button>
+            ))}
           </div>
         </div>
-        
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Стиля</div>
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>
+
+        {/* Кнопка действия */}
+        <button
+          onClick={handleSubmit}
+          disabled={!isReady}
+          className={cx(
+            "w-full text-sm font-semibold py-2.5 rounded-lg transition",
+            isReady
+              ? "bg-cyan-600 hover:bg-cyan-500 text-white"
+              : "bg-gray-700 text-gray-400 cursor-not-allowed"
+          )}
+        >
+          {isLoading ? "Обработка..." : "Применить стиль"}
+        </button>
       </div>
-    </div>
+
+      {/* Модалка с кроппером, которая всплывет когда надо */}
+      {cropRequest && (
+        <UniversalCropper
+          imageSrc={cropRequest}
+          aspectRatio={sourceAspectRatio}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
+    </>
   );
 };
 ```
@@ -2799,6 +3872,7 @@ import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
 import { ArrowPointer } from '../editor/ArrowPointer';
 import { UniversalCropper } from '../cropper/UniversalCropper'; // <<< 1. ИМПОРТ КРОППЕРА
+import Image from 'next/image';
 
 interface TextureTransplanterProps {
   onGenerate: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
@@ -2917,7 +3991,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
           </button>
           {texturePreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-              <img src={texturePreview} alt="Texture preview" className="h-full w-full object-cover" />
+              <Image src={texturePreview} alt="Texture preview" fill sizes="120px" className="object-cover" />
             </div>
           )}
         </div>
@@ -2935,7 +4009,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
           </button>
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
-              <img src={targetMapPreview} alt="Target map preview" className="h-full w-auto mx-auto object-contain" />
+              <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
             </div>
           )}
         </div>
@@ -3634,6 +4708,9 @@ export interface SidebarProps {
   onGenerate: () => void;
   onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
   onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateStyleReplacement: (referenceFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateObjectInjection: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateArrowEdits: (imageBlob: Blob, instructionsText: string, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
   onClear: () => void;
   error: string | null;
@@ -3827,6 +4904,7 @@ export function useImageWorkspace() {
   const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [activeNodeDims, setActiveNodeDims] = useState<{w: number, h: number} | null>(null);
   const [prompt, setPrompt] = useState("");
   const [rawPrompt, setRawPrompt] = useState("");
   const [isRefining, setIsRefining] = useState(false);
@@ -3853,13 +4931,32 @@ export function useImageWorkspace() {
   }, [fileError]);
 
   const activeHistory = useMemo(
-  () => workspaces[activeWorkspaceId ?? ""] ?? [],
-  [workspaces, activeWorkspaceId]
-);
+    () => workspaces[activeWorkspaceId ?? ""] ?? [],
+    [workspaces, activeWorkspaceId]
+  );
   const activeNode = useMemo(
     () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
     [activeNodeId, activeHistory]
   );
+  
+  useEffect(() => {
+    if (!activeNode) {
+      setActiveNodeDims(null);
+      return;
+    }
+
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> => 
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+
+    getDimsFromUrl(activeNode.imageUrl).then(setActiveNodeDims);
+    
+  }, [activeNode]);
 
   const isReadyToGenerate = useMemo(() => {
     if (activeTab === "BASE") return !!sourceFile && !!prompt.trim() && !isLoading;
@@ -3933,6 +5030,7 @@ export function useImageWorkspace() {
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // persist save
   useEffect(() => {
     savePersist({
@@ -3950,13 +5048,14 @@ export function useImageWorkspace() {
       activeWorkspaceId,
       // СТАЛО: Сохраняем ID активного узла
       activeNodeId,
+      activeNodeDims,
       selectedModel: settingsManager.selectedModel,
       qwenSettings: settingsManager.qwenSettings,
       fluxSettings: settingsManager.fluxSettings,
       seedreamSettings: settingsManager.seedreamSettings,
       seedLock: settingsManager.seedLock,
       seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: "compare", 
+      tab: "compare",
     });
   }, [
     prompt,
@@ -3972,6 +5071,8 @@ export function useImageWorkspace() {
     workspaces,
     activeWorkspaceId,
     activeNodeId,
+    activeNodeDims,
+    
     // Раскладываем settingsManager на конкретные поля, чтобы исключить лишние срабатывания
     settingsManager.selectedModel,
     settingsManager.qwenSettings,
@@ -3979,8 +5080,7 @@ export function useImageWorkspace() {
     settingsManager.seedreamSettings,
     settingsManager.seedLock,
     settingsManager.seedreamTargetSize,
-  ]
-  );
+  ]);
 
   useEffect(() => {
     setPromptTokenCount(encode(prompt || "").length);
@@ -4061,6 +5161,81 @@ export function useImageWorkspace() {
     }
   };
 
+  const onGenerateStyleReplacement = async (
+    referenceFile: File,
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // Наш железобетонный промпт
+    const prompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+
+    // Превращаем URL активной сауны в файл для отправки
+    let sourceImageFile: File;
+    try {
+      const response = await fetch(activeNode.imageUrl);
+      const blob = await response.blob();
+      sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
+    } catch {
+      return fail("Не удалось загрузить изображение из активного узла.");
+    }
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+
+    const formData = new FormData();
+    formData.append("image", sourceImageFile); // Главное изображение - сауна
+    formData.append("reference_image", referenceFile); // Референс - стиль
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const onGenerateBackgroundReplacement = async (
     referenceFile: File,
@@ -4068,6 +5243,18 @@ export function useImageWorkspace() {
     model: 'gemini' | 'seedream'
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
@@ -4091,7 +5278,7 @@ export function useImageWorkspace() {
     }
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
 
     const formData = new FormData();
     formData.append("image", sourceImageFile);
@@ -4110,6 +5297,150 @@ export function useImageWorkspace() {
         sourceImageUrl: activeNode.sourceImageUrl,
         prompt,
         negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onGenerateObjectInjection = async (
+    targetMapFile: File, // сауна + стрелка
+    objectFile: File,    // объект для внедрения
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // Наш новый, зашитый намертво промпт
+    const prompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
+    formData.append("reference_image", objectFile); // Референс - объект
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onGenerateArrowEdits = async (
+    imageBlob: Blob,
+    instructionsText: string,
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!instructionsText.trim()) return fail("Нет инструкций для выполнения.");
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // --- НАЧИНАЕТСЯ МАГИЯ ---
+
+    // 1. Создаем ФАЙЛ из BLOB'а, который пришел из редактора.
+    //    Это и есть наша картинка со стрелками.
+    const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
+
+    // 2. Собираем промпт, как и договаривались.
+    const prompt = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
+
+    // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+
+    // 4. Готовим настройки, ПЕРЕДАВАЯ в них правильные размеры.
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+
+    // 5. Собираем FormData с ПРАВИЛЬНЫМ файлом.
+    const formData = new FormData();
+    formData.append("image", imageFile); // <<< Отправляем файл со стрелками!
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", "text, annotations, arrows, indicators, pointers");
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: "text, annotations, arrows, indicators, pointers", // негативный тоже сохраняем
         model: model,
         settings,
       };
@@ -4347,7 +5678,7 @@ export function useImageWorkspace() {
       // Первый узел в новом воркспейсе - это он сам.
       setActiveNodeId(nodeId);
     }
-    
+
     // В любом случае, мы делаем этот воркспейс активным и переходим в PRO.
     setActiveWorkspaceId(nodeId);
     setActiveTab("PRO");
@@ -4376,6 +5707,7 @@ export function useImageWorkspace() {
     sourceFile,
     sourceUrl,
     imageInfo,
+    activeNodeDims,
     onFileChange,
     onDrop,
     dropRef,
@@ -4430,6 +5762,9 @@ export function useImageWorkspace() {
     onGenerate,
     onGenerateBackgroundReplacement,
     onGenerateTextureReplacement,
+    onGenerateStyleReplacement,
+    onGenerateObjectInjection,
+    onGenerateArrowEdits,
     onClear,
     onCancel,
     onKeyDown,
@@ -4437,6 +5772,7 @@ export function useImageWorkspace() {
     deleteWorkspace,
   };
 }
+
 ```
 
 ---
@@ -4502,15 +5838,15 @@ export function useSettingsManager(imageInfo: { w: number; h: number } | null) {
     if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
   }, [seedLock, selectedModel]);
   
-  const getCurrentSettings = useCallback((overrideModel?: Model) => {
+  const getCurrentSettings = useCallback((overrideModel?: Model, dims?: { w: number, h: number }) => {
     const modelToUse = overrideModel || selectedModel; // Используем переданную модель или глобальную
     switch (modelToUse) {
       case "qwen": return qwenSettings;
       case "flux": return fluxSettings;
       case "gemini": return { seed: qwenSettings.seed }; // Для Nano Banana нужен только seed
       case "seedream": {
-        const origW = imageInfo?.w ?? 1024;
-        const origH = imageInfo?.h ?? 1024;
+        const origW = dims?.w ?? imageInfo?.w ?? 1024;
+        const origH = dims?.h ?? imageInfo?.h ?? 1024;
         const ratio = origW / origH;
         let targetWidth = origW, targetHeight = origH;
         if (seedreamTargetSize !== 'original') {

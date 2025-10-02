@@ -1,54 +1,52 @@
-// src/components/sidebar/TextureTransplanter.tsx
+// src/components/sidebar/ObjectInjector.tsx
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
 import { cx } from '@/lib/utils';
 import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
 import { ArrowPointer } from '../editor/ArrowPointer';
-import { UniversalCropper } from '../cropper/UniversalCropper'; // <<< 1. ИМПОРТ КРОППЕРА
+import { UniversalCropper } from '../cropper/UniversalCropper';
 import Image from 'next/image';
 
-interface TextureTransplanterProps {
-  onGenerate: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
+interface ObjectInjectorProps {
+  onGenerate: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
   isLoading: boolean;
   activeImageUrl: string | null;
-  sourceAspectRatio: number; // <<< 2. ДОБАВЛЕН ПРОПС
+  sourceAspectRatio: number;
 }
 
-export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
+export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
   onGenerate,
   isLoading,
   activeImageUrl,
-  sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+  sourceAspectRatio,
 }) => {
-  // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
-  const [textureFile, setTextureFile] = useState<File | null>(null);
-  const [texturePreview, setTexturePreview] = useState<string | null>(null);
+  const [objectFile, setObjectFile] = useState<File | null>(null);
+  const [objectPreview, setObjectPreview] = useState<string | null>(null);
   const [targetMapFile, setTargetMapFile] = useState<File | null>(null);
   const [targetMapPreview, setTargetMapPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
   const [isPointerEditorOpen, setIsPointerEditorOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // <<< 3. НОВЫЙ СТЕЙТ ДЛЯ УПРАВЛЕНИЯ КРОППЕРОМ
   const [cropRequest, setCropRequest] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'gemini' | 'seedream'>('gemini');
 
-  const isReady = textureFile && targetMapFile && !isLoading;
+  const isReady = objectFile && targetMapFile && !isLoading;
 
   useEffect(() => {
-    setTextureFile(null);
+    setObjectFile(null);
     setTargetMapFile(null);
   }, [activeImageUrl]);
 
   useEffect(() => {
-    if (!textureFile) {
-      setTexturePreview(null);
+    if (!objectFile) {
+      setObjectPreview(null);
       return;
     }
-    const url = URL.createObjectURL(textureFile);
-    setTexturePreview(url);
+    const url = URL.createObjectURL(objectFile);
+    setObjectPreview(url);
     return () => URL.revokeObjectURL(url);
-  }, [textureFile]);
+  }, [objectFile]);
 
   useEffect(() => {
     if (!targetMapFile) {
@@ -60,7 +58,6 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
     return () => URL.revokeObjectURL(url);
   }, [targetMapFile]);
   
-  // <<< 4. ОБНОВЛЕННАЯ ЛОГИКА ЗАГРУЗКИ: ТЕПЕРЬ ОНА ОТКРЫВАЕТ КРОППЕР
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -72,18 +69,16 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
     }
     setError(null);
     
-    // Создаем временный URL и отправляем его в стейт, чтобы открыть модалку кроппера
     const url = URL.createObjectURL(file);
     setCropRequest(url);
   };
 
-  // <<< 5. НОВЫЕ ОБРАБОТЧИКИ ДЛЯ РЕЗУЛЬТАТОВ КРОППЕРА
   const handleCropConfirm = (croppedBlob: Blob) => {
     if (cropRequest) URL.revokeObjectURL(cropRequest);
     setCropRequest(null);
 
-    const croppedFile = new File([croppedBlob], "texture_crop.png", { type: "image/png" });
-    setTextureFile(croppedFile);
+    const croppedFile = new File([croppedBlob], "object_crop.png", { type: "image/png" });
+    setObjectFile(croppedFile);
   };
 
   const handleCropCancel = () => {
@@ -98,16 +93,16 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
   };
 
   const handleSubmit = () => {
-    if (!isReady || !targetMapFile || !textureFile) return;
-    onGenerate(targetMapFile, textureFile, 'gemini');
+    if (!isReady || !targetMapFile || !objectFile) return;
+    onGenerate(targetMapFile, objectFile, selectedModel);
   };
 
   return (
     <>
       <div className="space-y-4 pt-3">
-        {/* Блок 1: Загрузка Текстуры */}
+        {/* Блок 1: Загрузка Объекта */}
         <div>
-          <Label title="1. Загрузите текстуру" />
+          <Label title="1. Загрузите объект" />
           <input
             type="file"
             ref={fileInputRef}
@@ -120,18 +115,18 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
             onClick={() => fileInputRef.current?.click()}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
           >
-            {texturePreview ? 'Заменить текстуру' : '+ Выбрать текстуру'}
+            {objectPreview ? 'Заменить объект' : '+ Выбрать объект'}
           </button>
-          {texturePreview && (
+          {objectPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-              <Image src={texturePreview} alt="Texture preview" fill sizes="120px" className="object-cover" />
+              <Image src={objectPreview} alt="Object preview" fill sizes="120px" className="object-contain" />
             </div>
           )}
         </div>
 
         {/* Блок 2: Указание Цели */}
         <div>
-          <Label title="2. Укажите цель на фото" />
+          <Label title="2. Укажите место на фото" />
           <button
             type="button"
             onClick={() => setIsPointerEditorOpen(true)}
@@ -149,6 +144,27 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
 
+        {/* Блок Выбора Модели */}
+        <div>
+          <Label title="Модель" />
+          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+            {(['gemini', 'seedream'] as const).map(model => (
+              <button
+                key={model}
+                onClick={() => setSelectedModel(model)}
+                className={cx(
+                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                  selectedModel === model
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-gray-400 hover:bg-gray-800'
+                )}
+              >
+                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Кнопка действия */}
         <button
           onClick={handleSubmit}
@@ -160,7 +176,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
               : "bg-gray-700 text-gray-400 cursor-not-allowed"
           )}
         >
-          {isLoading ? "Обработка..." : "Применить Текстуру"}
+          {isLoading ? "Обработка..." : "Внедрить Объект"}
         </button>
       </div>
 
@@ -172,7 +188,6 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         />
       )}
 
-      {/* <<< 6. ДОБАВЛЕН УСЛОВНЫЙ РЕНДЕР КРОППЕРА */}
       {cropRequest && (
         <UniversalCropper
           imageSrc={cropRequest}

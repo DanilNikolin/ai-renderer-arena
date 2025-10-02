@@ -45,6 +45,7 @@ export function useImageWorkspace() {
   const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [activeNodeDims, setActiveNodeDims] = useState<{w: number, h: number} | null>(null);
   const [prompt, setPrompt] = useState("");
   const [rawPrompt, setRawPrompt] = useState("");
   const [isRefining, setIsRefining] = useState(false);
@@ -71,13 +72,32 @@ export function useImageWorkspace() {
   }, [fileError]);
 
   const activeHistory = useMemo(
-  () => workspaces[activeWorkspaceId ?? ""] ?? [],
-  [workspaces, activeWorkspaceId]
-);
+    () => workspaces[activeWorkspaceId ?? ""] ?? [],
+    [workspaces, activeWorkspaceId]
+  );
   const activeNode = useMemo(
     () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
     [activeNodeId, activeHistory]
   );
+  
+  useEffect(() => {
+    if (!activeNode) {
+      setActiveNodeDims(null);
+      return;
+    }
+
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> => 
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+
+    getDimsFromUrl(activeNode.imageUrl).then(setActiveNodeDims);
+    
+  }, [activeNode]);
 
   const isReadyToGenerate = useMemo(() => {
     if (activeTab === "BASE") return !!sourceFile && !!prompt.trim() && !isLoading;
@@ -151,6 +171,7 @@ export function useImageWorkspace() {
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // persist save
   useEffect(() => {
     savePersist({
@@ -168,13 +189,14 @@ export function useImageWorkspace() {
       activeWorkspaceId,
       // СТАЛО: Сохраняем ID активного узла
       activeNodeId,
+      activeNodeDims,
       selectedModel: settingsManager.selectedModel,
       qwenSettings: settingsManager.qwenSettings,
       fluxSettings: settingsManager.fluxSettings,
       seedreamSettings: settingsManager.seedreamSettings,
       seedLock: settingsManager.seedLock,
       seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: "compare", 
+      tab: "compare",
     });
   }, [
     prompt,
@@ -190,6 +212,8 @@ export function useImageWorkspace() {
     workspaces,
     activeWorkspaceId,
     activeNodeId,
+    activeNodeDims,
+    
     // Раскладываем settingsManager на конкретные поля, чтобы исключить лишние срабатывания
     settingsManager.selectedModel,
     settingsManager.qwenSettings,
@@ -197,8 +221,7 @@ export function useImageWorkspace() {
     settingsManager.seedreamSettings,
     settingsManager.seedLock,
     settingsManager.seedreamTargetSize,
-  ]
-  );
+  ]);
 
   useEffect(() => {
     setPromptTokenCount(encode(prompt || "").length);
@@ -284,6 +307,18 @@ export function useImageWorkspace() {
     model: 'gemini' | 'seedream'
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
@@ -302,7 +337,7 @@ export function useImageWorkspace() {
     }
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
 
     const formData = new FormData();
     formData.append("image", sourceImageFile); // Главное изображение - сауна
@@ -349,6 +384,18 @@ export function useImageWorkspace() {
     model: 'gemini' | 'seedream'
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
@@ -372,7 +419,7 @@ export function useImageWorkspace() {
     }
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
 
     const formData = new FormData();
     formData.append("image", sourceImageFile);
@@ -391,6 +438,150 @@ export function useImageWorkspace() {
         sourceImageUrl: activeNode.sourceImageUrl,
         prompt,
         negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onGenerateObjectInjection = async (
+    targetMapFile: File, // сауна + стрелка
+    objectFile: File,    // объект для внедрения
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+    // --- КОНЕЦ БЛОКА ---
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // Наш новый, зашитый намертво промпт
+    const prompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
+    formData.append("reference_image", objectFile); // Референс - объект
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onGenerateArrowEdits = async (
+    imageBlob: Blob,
+    instructionsText: string,
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!instructionsText.trim()) return fail("Нет инструкций для выполнения.");
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    // --- НАЧИНАЕТСЯ МАГИЯ ---
+
+    // 1. Создаем ФАЙЛ из BLOB'а, который пришел из редактора.
+    //    Это и есть наша картинка со стрелками.
+    const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
+
+    // 2. Собираем промпт, как и договаривались.
+    const prompt = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
+
+    // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
+    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+      new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = url;
+      });
+
+    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
+
+    // 4. Готовим настройки, ПЕРЕДАВАЯ в них правильные размеры.
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+
+    // 5. Собираем FormData с ПРАВИЛЬНЫМ файлом.
+    const formData = new FormData();
+    formData.append("image", imageFile); // <<< Отправляем файл со стрелками!
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", "text, annotations, arrows, indicators, pointers");
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: "text, annotations, arrows, indicators, pointers", // негативный тоже сохраняем
         model: model,
         settings,
       };
@@ -562,6 +753,7 @@ export function useImageWorkspace() {
         setJsonContent(JSON.stringify(parsed, null, 2));
         setJsonError(null);
         setIsJsonViewerOpen(true);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
         setJsonContent(null);
@@ -628,7 +820,7 @@ export function useImageWorkspace() {
       // Первый узел в новом воркспейсе - это он сам.
       setActiveNodeId(nodeId);
     }
-    
+
     // В любом случае, мы делаем этот воркспейс активным и переходим в PRO.
     setActiveWorkspaceId(nodeId);
     setActiveTab("PRO");
@@ -657,6 +849,7 @@ export function useImageWorkspace() {
     sourceFile,
     sourceUrl,
     imageInfo,
+    activeNodeDims,
     onFileChange,
     onDrop,
     dropRef,
@@ -712,6 +905,8 @@ export function useImageWorkspace() {
     onGenerateBackgroundReplacement,
     onGenerateTextureReplacement,
     onGenerateStyleReplacement,
+    onGenerateObjectInjection,
+    onGenerateArrowEdits,
     onClear,
     onCancel,
     onKeyDown,

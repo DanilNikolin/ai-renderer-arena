@@ -56,4 +56,5 @@ export type PersistState = {
   workspaces: { [rootNodeId: string]: GenerationNode[] };
   activeWorkspaceId: string | null;
   activeNodeId: string | null;
+  activeNodeDims: { w: number; h: number } | null;
 };

@@ -54,6 +54,8 @@ export interface SidebarProps {
   onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
   onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
   onGenerateStyleReplacement: (referenceFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateObjectInjection: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
+  onGenerateArrowEdits: (imageBlob: Blob, instructionsText: string, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
   onClear: () => void;
   error: string | null;

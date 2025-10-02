@@ -56,15 +56,15 @@ export function useSettingsManager(imageInfo: { w: number; h: number } | null) {
     if (selectedModel === "flux") setFluxSettings(p => ({ ...p, seed }));
   }, [seedLock, selectedModel]);
   
-  const getCurrentSettings = useCallback((overrideModel?: Model) => {
+  const getCurrentSettings = useCallback((overrideModel?: Model, dims?: { w: number, h: number }) => {
     const modelToUse = overrideModel || selectedModel; // Используем переданную модель или глобальную
     switch (modelToUse) {
       case "qwen": return qwenSettings;
       case "flux": return fluxSettings;
       case "gemini": return { seed: qwenSettings.seed }; // Для Nano Banana нужен только seed
       case "seedream": {
-        const origW = imageInfo?.w ?? 1024;
-        const origH = imageInfo?.h ?? 1024;
+        const origW = dims?.w ?? imageInfo?.w ?? 1024;
+        const origH = dims?.h ?? imageInfo?.h ?? 1024;
         const ratio = origW / origH;
         let targetWidth = origW, targetHeight = origH;
         if (seedreamTargetSize !== 'original') {

@@ -1,21 +1,41 @@
 // src/components/sidebar/ProTools.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { SidebarProps } from '../workspace/Sidebar.types';
+
 import { InstructionEditor } from './InstructionEditor';
 import { TextureTransplanter } from './TextureTransplanter';
-import { BackgroundReplacer } from './BackgroundReplacer'; 
+import { BackgroundReplacer } from './BackgroundReplacer';
 import { StyleTransplanter } from './StyleTransplanter';
+import { ObjectInjector } from './ObjectInjector';
 
+import { MultiArrowEditor } from '../editor/MultiArrowEditor';
+import { Label } from '../ui/FormControls';
+import { cx } from '@/lib/utils';
+import Image from 'next/image';
 
-// ProTools теперь должен знать о новой функции, которую он будет передавать
 type ProToolsProps = Omit<SidebarProps, 'handleTabChange'> & {
   onGenerateBackgroundReplacement: (
     file: File,
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
-  onGenerateStyleReplacement: ( 
-    file: File, 
+  onGenerateTextureReplacement: (
+    targetMapFile: File,
+    textureFile: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateStyleReplacement: (
+    file: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateObjectInjection: (
+    targetMapFile: File,
+    objectFile: File,
+    model: 'gemini' | 'seedream'
+  ) => void;
+  onGenerateArrowEdits: (
+    imageBlob: Blob,
+    instructionsText: string,
     model: 'gemini' | 'seedream'
   ) => void;
   sourceAspectRatio: number;
@@ -26,6 +46,57 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
+  const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
+
+  const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
+  const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
+
+  // предпросмотр карты стрелок
+  const [arrowMapBlob, setArrowMapBlob] = useState<Blob | null>(null);
+  const [arrowMapPreviewUrl, setArrowMapPreviewUrl] = useState<string | null>(null);
+  const [arrowInstructions, setArrowInstructions] = useState<string>('');
+
+  // сброс при смене активного узла
+  useEffect(() => {
+    setArrowMapBlob(null);
+    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    setArrowMapPreviewUrl(null);
+    setArrowInstructions('');
+  }, [props.activeNode?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // очистка URL при размонтировании/смене превью
+  useEffect(() => {
+    return () => {
+      if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    };
+  }, [arrowMapPreviewUrl]);
+
+  // получаем из редактора blob + текст
+  const handleArrowEditorConfirm = (imageBlob: Blob, instructionsText: string) => {
+    setArrowMapBlob(imageBlob);
+    setArrowInstructions(instructionsText);
+    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    setArrowMapPreviewUrl(URL.createObjectURL(imageBlob));
+    setIsArrowEditorOpen(false);
+  };
+
+  // отправка в API
+  const handleSendArrowEdits = () => {
+    // ЛОВУШКА №1: Проверяем, что клик вообще сработал.
+    console.log('--- [ProTools] Клик по "Отправить" зафиксирован. ---');
+
+    // ЛОВУШКА №2: Смотрим, что у нас в руках перед выстрелом.
+    console.log('--- [ProTools] Проверяем данные:', { arrowMapBlob, arrowInstructions });
+
+    if (!arrowMapBlob || !arrowInstructions) {
+      // ЛОВУШКА №3: Если мы остановились, то почему.
+      console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
+      return;
+    }
+    
+    console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
+    props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
+  };
 
   return (
     <div className="space-y-3">
@@ -39,11 +110,11 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           </button>
         </div>
       )}
-      
+
       <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
 
       <div className="space-y-2">
-        {/* Блок 1: Правка по инструкции (без изменений) */}
+        {/* Правка по инструкции */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -59,7 +130,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* <<< 3. НАЧАЛО: Наш новый блок "Замена Фона" */}
+        {/* Замена Фона */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -78,8 +149,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             </div>
           )}
         </div>
-    
-        {/* <<< 2. НАЧАЛО: Наш новый блок "Замена Текстуры" */}
+
+        {/* Замена Текстуры */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -100,6 +171,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
+        {/* Замена Стиля */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -111,17 +183,138 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           {isStyleTransplanterOpen && (
             <div className="p-3 border-t border-gray-700/50">
               <StyleTransplanter
-               onGenerate={props.onGenerateStyleReplacement}
+                onGenerate={props.onGenerateStyleReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
               />
             </div>
           )}
         </div>
-        
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>
+
+        {/* Внедрение Объекта */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsObjectInjectorOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта
+          </button>
+          {isObjectInjectorOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <ObjectInjector
+                onGenerate={props.onGenerateObjectInjection}
+                isLoading={props.isLoading}
+                activeImageUrl={props.activeNode?.imageUrl ?? null}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Редактор по Стрелкам */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-3 space-y-3">
+          <div>
+            <h4 className="text-sm font-medium text-cyan-400">Редактор по Стрелкам</h4>
+            <p className="text-xs text-gray-400 mt-1">Точечные правки с помощью текстовых инструкций.</p>
+          </div>
+
+          {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
+          {arrowMapPreviewUrl ? (
+            <div className="space-y-3">
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map((model) => (
+                  <button
+                    key={model}
+                    onClick={() => setArrowEditorModel(model)}
+                    type="button"
+                    className={cx(
+                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <Label title="Карта инструкций (превью)" />
+                <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+                  <Image
+                    src={arrowMapPreviewUrl}
+                    alt="Arrow map preview"
+                    fill
+                    sizes="150px"
+                    className="object-contain"
+                 />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+                    setArrowMapPreviewUrl(null);
+                    // если хочешь сразу возвращаться в редактор:
+                    // setIsArrowEditorOpen(true);
+                  }}
+                  className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
+                  type="button"
+                >
+                  Изменить
+                </button>
+                <button
+                  onClick={handleSendArrowEdits}
+                  className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
+                  type="button"
+                >
+                  Отправить
+                </button>
+              </div>
+            </div>
+          ) : (
+            // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
+            <div className="space-y-3">
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map((model) => (
+                  <button
+                    key={model}
+                    onClick={() => setArrowEditorModel(model)}
+                    type="button"
+                    className={cx(
+                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsArrowEditorOpen(true)}
+                disabled={!props.activeNode}
+                className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+              >
+                ✍️ Открыть редактор
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Портал стрелочного редактора */}
+      {isArrowEditorOpen && props.activeNode && (
+        <MultiArrowEditor
+          imageSrc={props.activeNode.imageUrl}
+          onCancel={() => setIsArrowEditorOpen(false)}
+          onConfirm={handleArrowEditorConfirm}
+        />
+      )}
     </div>
   );
 };

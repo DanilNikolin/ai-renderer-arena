@@ -9,10 +9,22 @@ import { Canvas } from "./workspace/Canvas";
 export default function ImageWorkspace() {
   const workspaceState = useImageWorkspace();
 
-  // Вычисляем соотношение сторон исходного изображения
-  const sourceAspectRatio = workspaceState.imageInfo
+  // --- НОВАЯ ДИНАМИЧЕСКАЯ ЛОГИКА ---
+  // Пропорции для PRO-режима (берутся из активной ноды)
+  const proAspectRatio = workspaceState.activeNodeDims
+    ? workspaceState.activeNodeDims.w / workspaceState.activeNodeDims.h
+    : null;
+  
+  // Пропорции для BASE-режима (берутся из исходного скетча)
+  const baseAspectRatio = workspaceState.imageInfo
     ? workspaceState.imageInfo.w / workspaceState.imageInfo.h
-    : 16 / 9; // Запасной вариант, если инфо еще нет
+    : 16 / 9; // Запасной вариант
+
+  // Выбираем, какие пропорции использовать, в зависимости от активной вкладки
+  const sourceAspectRatio = workspaceState.activeTab === 'PRO' && proAspectRatio
+    ? proAspectRatio
+    : baseAspectRatio;
+  // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
   return (
     <div

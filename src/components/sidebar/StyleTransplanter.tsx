@@ -4,6 +4,7 @@ import { cx } from '@/lib/utils';
 import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
 import { UniversalCropper } from '@/components/cropper/UniversalCropper';
+import Image from 'next/image';
 
 type ModelForStyle = 'gemini' | 'seedream';
 
@@ -101,10 +102,12 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
 
           {previewUrl && (
             <div className="mt-3 relative h-20 w-full flex items-center justify-center rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-              <img
+                <Image
                 src={previewUrl}
                 alt="Style reference preview"
-                className="h-full w-auto object-contain"
+                fill
+                sizes="120px"
+                className="object-contain"
               />
             </div>
           )}
