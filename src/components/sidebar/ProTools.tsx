@@ -47,6 +47,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
   const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
+  const [isArrowSectionOpen, setIsArrowSectionOpen] = useState(false); // <<< новый стейт секции
 
   const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
   const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
@@ -93,7 +94,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
       console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
       return;
     }
-    
+
     console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
     props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
   };
@@ -212,96 +213,109 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Редактор по Стрелкам */}
-        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-3 space-y-3">
-          <div>
-            <h4 className="text-sm font-medium text-cyan-400">Редактор по Стрелкам</h4>
-            <p className="text-xs text-gray-400 mt-1">Точечные правки с помощью текстовых инструкций.</p>
-          </div>
+        {/* Редактор по Стрелкам — теперь сворачиваемая секция */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsArrowSectionOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isArrowSectionOpen ? '▼' : '►'} Редактор по Стрелкам
+          </button>
 
-          {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
-          {arrowMapPreviewUrl ? (
-            <div className="space-y-3">
-              <Label title="Модель" />
-              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-                {(['gemini', 'seedream'] as const).map((model) => (
-                  <button
-                    key={model}
-                    onClick={() => setArrowEditorModel(model)}
-                    type="button"
-                    className={cx(
-                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
-                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
-                    )}
-                  >
-                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-                  </button>
-                ))}
-              </div>
+          {isArrowSectionOpen && (
+            <div className="p-3 border-t border-gray-700/50 space-y-3">
+              <p className="text-xs text-gray-400 -mt-2 mb-2">
+                Точечные правки с помощью текстовых инструкций.
+              </p>
 
-              <div>
-                <Label title="Карта инструкций (превью)" />
-                <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
-                  <Image
-                    src={arrowMapPreviewUrl}
-                    alt="Arrow map preview"
-                    fill
-                    sizes="150px"
-                    className="object-contain"
-                 />
+              {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
+              {arrowMapPreviewUrl ? (
+                <div className="space-y-3">
+                  <Label title="Модель" />
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                    {(['gemini', 'seedream'] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setArrowEditorModel(model)}
+                        type="button"
+                        className={cx(
+                          'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                          arrowEditorModel === model
+                            ? 'bg-cyan-600 text-white'
+                            : 'text-gray-400 hover:bg-gray-800'
+                        )}
+                      >
+                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <Label title="Карта инструкций (превью)" />
+                    <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+                      <Image
+                        src={arrowMapPreviewUrl}
+                        alt="Arrow map preview"
+                        fill
+                        sizes="150px"
+                        className="object-contain"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+                        setArrowMapPreviewUrl(null);
+                      }}
+                      className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
+                      type="button"
+                    >
+                      Изменить
+                    </button>
+                    <button
+                      onClick={handleSendArrowEdits}
+                      className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
+                      type="button"
+                    >
+                      Отправить
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
+                <div className="space-y-3">
+                  <Label title="Модель" />
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                    {(['gemini', 'seedream'] as const).map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setArrowEditorModel(model)}
+                        type="button"
+                        className={cx(
+                          'py-1.5 rounded-md text-xs font-semibold transition-colors',
+                          arrowEditorModel === model
+                            ? 'bg-cyan-600 text-white'
+                            : 'text-gray-400 hover:bg-gray-800'
+                        )}
+                      >
+                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
-                    setArrowMapPreviewUrl(null);
-                    // если хочешь сразу возвращаться в редактор:
-                    // setIsArrowEditorOpen(true);
-                  }}
-                  className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
-                  type="button"
-                >
-                  Изменить
-                </button>
-                <button
-                  onClick={handleSendArrowEdits}
-                  className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
-                  type="button"
-                >
-                  Отправить
-                </button>
-              </div>
-            </div>
-          ) : (
-            // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
-            <div className="space-y-3">
-              <Label title="Модель" />
-              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-                {(['gemini', 'seedream'] as const).map((model) => (
                   <button
-                    key={model}
-                    onClick={() => setArrowEditorModel(model)}
                     type="button"
-                    className={cx(
-                      'py-1.5 rounded-md text-xs font-semibold transition-colors',
-                      arrowEditorModel === model ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:bg-gray-800'
-                    )}
+                    onClick={() => setIsArrowEditorOpen(true)}
+                    disabled={!props.activeNode}
+                    className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
-                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                    ✍️ Открыть редактор
                   </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsArrowEditorOpen(true)}
-                disabled={!props.activeNode}
-                className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
-              >
-                ✍️ Открыть редактор
-              </button>
+                </div>
+              )}
             </div>
           )}
         </div>
