@@ -224,6 +224,62 @@ export function useImageWorkspace() {
     if (e.key === "Escape" && isLoading) onCancel();
   };
 
+  const onGenerateTextureReplacement = async (
+    targetMapFile: File, // сауна + стрелка
+    textureFile: File,   // текстура
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    const prompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки, если что
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
+    formData.append("reference_image", textureFile); // Референс - текстура
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
   const onGenerateBackgroundReplacement = async (
     referenceFile: File,
     targets: { window: boolean; door: boolean },
@@ -591,6 +647,7 @@ export function useImageWorkspace() {
     onJsonFileChange,
     onGenerate,
     onGenerateBackgroundReplacement,
+    onGenerateTextureReplacement,
     onClear,
     onCancel,
     onKeyDown,

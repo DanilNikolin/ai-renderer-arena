@@ -52,6 +52,7 @@ export interface SidebarProps {
   isLoading: boolean;
   onGenerate: () => void;
   onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
+  onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
   onClear: () => void;
   error: string | null;
@@ -70,4 +71,5 @@ export interface SidebarProps {
   doorView: string;
   setDoorView: (value: string) => void;
   sourceAspectRatio: number;
+  activeNode: GenerationNode | null;
 }

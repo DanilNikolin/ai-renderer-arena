@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import type { SidebarProps } from '../workspace/Sidebar.types';
 import { InstructionEditor } from './InstructionEditor';
-import { BackgroundReplacer } from './BackgroundReplacer'; // <<< 1. Импортируем новый инструмент
+import { TextureTransplanter } from './TextureTransplanter';
+import { BackgroundReplacer } from './BackgroundReplacer'; 
 
 
 // ProTools теперь должен знать о новой функции, которую он будет передавать
@@ -19,6 +20,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isEditorOpen, setIsEditorOpen] = useState(true);
   // <<< 2. Добавляем стейт для нового "баяна"
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
+  const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -71,11 +73,28 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             </div>
           )}
         </div>
-        {/* <<< КОНЕЦ НОВОГО БЛОКА */}
-
-
-        {/* Остальные инструменты пока остаются заглушками */}
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Текстуры</div>
+    
+        {/* <<< 2. НАЧАЛО: Наш новый блок "Замена Текстуры" */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsTextureTransplanterOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            {isTextureTransplanterOpen ? '▼' : '►'} Замена Текстуры
+          </button>
+          {isTextureTransplanterOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <TextureTransplanter
+                onGenerate={props.onGenerateTextureReplacement}
+                isLoading={props.isLoading}
+                activeImageUrl={props.activeNode?.imageUrl ?? null}
+                sourceAspectRatio={props.sourceAspectRatio}
+              />
+            </div>
+          )}
+        </div>
+        
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Стиля</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>

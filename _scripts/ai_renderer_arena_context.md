@@ -25,6 +25,8 @@ ai-renderer-arena
 │   │   ├── ImageWorkspace.tsx
 │   │   ├── cropper
 │   │   │   └── UniversalCropper.tsx
+│   │   ├── editor
+│   │   │   └── ArrowPointer.tsx
 │   │   ├── sidebar
 │   │   │   ├── ActionButtons.tsx
 │   │   │   ├── BackgroundReplacer.tsx
@@ -37,7 +39,8 @@ ai-renderer-arena
 │   │   │   ├── ModelSelector.tsx
 │   │   │   ├── ModelSettings.tsx
 │   │   │   ├── ProTools.tsx
-│   │   │   └── PromptEngineer.tsx
+│   │   │   ├── PromptEngineer.tsx
+│   │   │   └── TextureTransplanter.tsx
 │   │   ├── ui
 │   │   │   └── FormControls.tsx
 │   │   └── workspace
@@ -857,7 +860,7 @@ export default function ImageWorkspace() {
 ## Файл: `src/components/cropper/UniversalCropper.tsx`
 
 ```typescript
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 type Vec2 = { x: number; y: number };
@@ -868,7 +871,7 @@ type DragMode = 'none' | 'move' | 'resize-nw' | 'resize-ne' | 'resize-se' | 'res
 export type UniversalCropperProps = {
   imageSrc: string;
   aspectRatio: number;          // обязателен: width/height
-  minWidth?: number;            // в CSS-пикселях (минимальная ширина рамки в canvas CSS px)
+  minWidth?: number;            // минимальная ширина рамки в CSS-пикселях
   onConfirm: (blob: Blob) => void;
   onCancel: () => void;
 };
@@ -904,7 +907,6 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     mode: DragMode;
     start: Vec2;        // в backing px
     origSel: Rect;
-    pivot?: Vec2;       // для масштабирования вокруг точки (колесо мыши)
   } | null>(null);
 
   // ===== загрузка изображения =====
@@ -917,119 +919,16 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     return () => { imgRef.current = null; setImgReady(false); };
   }, [imageSrc]);
 
-  // ===== ресайз canvas под контейнер + fit-фото + первичная рамка =====
-  const resizeAll = () => {
-    const canvas  = canvasRef.current!;
-    const wrapper = wrapperRef.current!;
-    const ratio   = dpr();
-
-    const rect = wrapper.getBoundingClientRect();
-    // оставим немного воздуха для кнопок
-    const cssW = Math.max(320, rect.width);
-    const cssH = Math.max(260, rect.height - 56);
-
-    canvas.width  = Math.round(cssW * ratio);
-    canvas.height = Math.round(cssH * ratio);
-    canvas.style.width  = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
-
-    const img = imgRef.current!;
-    // fit
-    const s  = Math.min(canvas.width / img.width, canvas.height / img.height);
-    const iw = Math.round(img.width * s);
-    const ih = Math.round(img.height * s);
-    const ix = Math.round((canvas.width  - iw) / 2);
-    const iy = Math.round((canvas.height - ih) / 2);
-    imgFitRef.current = { scale: s, x: ix, y: iy, w: iw, h: ih };
-
-    // инициализируем рамку по центру (60% по ширине fit-картинки)
-    if (!selRef.current) {
-      let w = Math.round(iw * 0.6);
-      if (w < minWidth * ratio) w = Math.round(minWidth * ratio);
-      let h = Math.round(w / aspectRatio);
-
-      if (h > ih) {
-        h = ih - Math.round(0.1 * ih);
-        w = Math.round(h * aspectRatio);
-      }
-      const x = ix + Math.round((iw - w) / 2);
-      const y = iy + Math.round((ih - h) / 2);
-      selRef.current = { x, y, w, h };
-    } else {
-      // при ресайзе — просто кламп
-      selRef.current = clampToImage(selRef.current);
-    }
-
-    draw();
-  };
-
-  useLayoutEffect(() => {
-    if (!imgReady) return;
-    resizeAll();
-    const onResize = () => resizeAll();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imgReady, aspectRatio, minWidth]);
-
-  // ===== отрисовка =====
-  const draw = () => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const ratio = dpr();
-    const img = imgRef.current!;
-    const fit = imgFitRef.current;
-    const sel = selRef.current;
-
-    // очистка
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // фон-фото (fit, статично)
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(img, 0, 0, img.width, img.height, fit.x, fit.y, fit.w, fit.h);
-
-    if (!sel) return;
-
-    // затемняем вне рамки (картинка внутри рамки остаётся видимой)
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath();
-    ctx.rect(0, 0, canvas.width, canvas.height); // внешняя область
-    ctx.rect(sel.x, sel.y, sel.w, sel.h);        // внутренняя рамка
-    ctx.fill('evenodd');                          // заливаем только «снаружи»
-    ctx.restore();
-
-
-    // обводка рамки
-    ctx.save();
-    ctx.strokeStyle = '#22d3ee';
-    ctx.lineWidth = 2 * ratio;
-    ctx.setLineDash([6 * ratio, 4 * ratio]);
-    ctx.strokeRect(sel.x, sel.y, sel.w, sel.h);
-    ctx.setLineDash([]);
-
-    // ручки (4 угла)
-    const hs = HANDLE_SIZE_CSS * ratio;
-    const half = Math.round(hs / 2);
-    const corners: Vec2[] = [
-      { x: sel.x,           y: sel.y           }, // nw
-      { x: sel.x + sel.w,   y: sel.y           }, // ne
-      { x: sel.x + sel.w,   y: sel.y + sel.h   }, // se
-      { x: sel.x,           y: sel.y + sel.h   }, // sw
-    ];
-    ctx.fillStyle = '#22d3ee';
-    for (const c of corners) {
-      ctx.fillRect(Math.round(c.x - half), Math.round(c.y - half), hs, hs);
-    }
-    ctx.restore();
-  };
-
   // ===== утилиты =====
   const pointInRect = (p: Vec2, r: Rect) =>
     p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+
+  const getCanvasPoint = (e: PointerEvent | React.PointerEvent): Vec2 => {
+    const canvas = canvasRef.current!;
+    const rect   = canvas.getBoundingClientRect();
+    const ratio  = dpr();
+    return { x: (e.clientX - rect.left) * ratio, y: (e.clientY - rect.top) * ratio };
+  };
 
   const handleHit = (p: Vec2): DragMode => {
     const sel = selRef.current!;
@@ -1050,13 +949,6 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     }
     if (pointInRect(p, sel)) return 'move';
     return 'none';
-  };
-
-  const getCanvasPoint = (e: PointerEvent | React.PointerEvent): Vec2 => {
-    const canvas = canvasRef.current!;
-    const rect   = canvas.getBoundingClientRect();
-    const ratio  = dpr();
-    return { x: (e.clientX - rect.left) * ratio, y: (e.clientY - rect.top) * ratio };
   };
 
   const clampToImage = (r: Rect | null): Rect | null => {
@@ -1083,158 +975,236 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     return { x, y, w, h };
   };
 
-  // ===== pointer handlers =====
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // ===== ресайз canvas + fit-фото + первичная рамка =====
+  const draw = () => {
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    const onMove = (e: PointerEvent) => {
-      const sel = selRef.current;
-      if (!sel) return;
-      const p = getCanvasPoint(e);
+    const ratio = dpr();
+    const img = imgRef.current!;
+    const fit = imgFitRef.current;
+    const sel = selRef.current;
 
-      if (!dragRef.current) {
-        // курсор
-        const m = handleHit(p);
-        switch (m) {
-          case 'move': canvas.style.cursor = 'move'; break;
-          case 'resize-nw':
-          case 'resize-se': canvas.style.cursor = 'nwse-resize'; break;
-          case 'resize-ne':
-          case 'resize-sw': canvas.style.cursor = 'nesw-resize'; break;
-          default: canvas.style.cursor = 'default';
-        }
-        return;
-      }
+    // очистка
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const drag = dragRef.current;
-      const ratio = dpr();
-      const minW = Math.max(minWidth * ratio, 1);
+    // фон-фото (fit, статично)
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, 0, 0, img.width, img.height, fit.x, fit.y, fit.w, fit.h);
 
-      if (drag.mode === 'move') {
-        const dx = p.x - drag.start.x;
-        const dy = p.y - drag.start.y;
-        let nx = drag.origSel.x + dx;
-        let ny = drag.origSel.y + dy;
-        selRef.current = clampToImage({ x: nx, y: ny, w: drag.origSel.w, h: drag.origSel.h });
-        draw();
-        return;
-      }
+    if (!sel) return;
 
-      // resize с фикс-AR (все углы ведут себя одинаково: пропорционально)
-      const signX = (drag.mode === 'resize-ne' || drag.mode === 'resize-se') ? 1 : -1;
-      const signY = (drag.mode === 'resize-se' || drag.mode === 'resize-sw') ? 1 : -1;
+    // затемняем вне рамки
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.rect(sel.x, sel.y, sel.w, sel.h);
+    ctx.fill('evenodd');
+    ctx.restore();
 
-      // выбираем дельту «более длинной» стороны, чтобы ощущалось естественно
-      const dx = (p.x - drag.start.x) * signX;
-      const dy = (p.y - drag.start.y) * signY;
-      const base = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+    // обводка рамки
+    ctx.save();
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2 * ratio;
+    ctx.setLineDash([6 * ratio, 4 * ratio]);
+    ctx.strokeRect(sel.x, sel.y, sel.w, sel.h);
+    ctx.setLineDash([]);
 
-      // новая ширина
-      let w = Math.max(minW, drag.origSel.w + base * 2); // *2 чтобы рост шёл симметрично от угла
+    // ручки (4 угла)
+    const hs = HANDLE_SIZE_CSS * ratio;
+    const half = Math.round(hs / 2);
+    const corners: Vec2[] = [
+      { x: sel.x,           y: sel.y           },
+      { x: sel.x + sel.w,   y: sel.y           },
+      { x: sel.x + sel.w,   y: sel.y + sel.h   },
+      { x: sel.x,           y: sel.y + sel.h   },
+    ];
+    ctx.fillStyle = '#22d3ee';
+    for (const c of corners) {
+      ctx.fillRect(Math.round(c.x - half), Math.round(c.y - half), hs, hs);
+    }
+    ctx.restore();
+  };
+
+  const resizeAll = () => {
+    const canvas  = canvasRef.current!;
+    const wrapper = wrapperRef.current!;
+    const ratio   = dpr();
+
+    const rect = wrapper.getBoundingClientRect();
+    // немного воздуха для кнопок
+    const cssW = Math.max(320, rect.width);
+    const cssH = Math.max(260, rect.height - 56);
+
+    canvas.width  = Math.round(cssW * ratio);
+    canvas.height = Math.round(cssH * ratio);
+    canvas.style.width  = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+
+    const img = imgRef.current!;
+    const s  = Math.min(canvas.width / img.width, canvas.height / img.height);
+    const iw = Math.round(img.width * s);
+    const ih = Math.round(img.height * s);
+    const ix = Math.round((canvas.width  - iw) / 2);
+    const iy = Math.round((canvas.height - ih) / 2);
+    imgFitRef.current = { scale: s, x: ix, y: iy, w: iw, h: ih };
+
+    // инициализируем рамку по центру (60% ширины fit-картинки)
+    if (!selRef.current) {
+      let w = Math.round(iw * 0.6);
+      if (w < Math.round(minWidth * ratio)) w = Math.round(minWidth * ratio);
       let h = Math.round(w / aspectRatio);
 
-      // центр от активного угла смещается соответствующе
-      let cx: number, cy: number;
-      if (drag.mode === 'resize-nw') {
-        cx = drag.origSel.x + drag.origSel.w;
-        cy = drag.origSel.y + drag.origSel.h;
-        const x = Math.round(cx - w);
-        const y = Math.round(cy - h);
-        selRef.current = clampToImage({ x, y, w, h });
-      } else if (drag.mode === 'resize-ne') {
-        cx = drag.origSel.x;
-        cy = drag.origSel.y + drag.origSel.h;
-        const x = Math.round(cx);
-        const y = Math.round(cy - h);
-        selRef.current = clampToImage({ x, y, w, h });
-      } else if (drag.mode === 'resize-se') {
-        const x = drag.origSel.x;
-        const y = drag.origSel.y;
-        selRef.current = clampToImage({ x, y, w, h });
-      } else if (drag.mode === 'resize-sw') {
-        cx = drag.origSel.x + drag.origSel.w;
-        cy = drag.origSel.y;
-        const x = Math.round(cx - w);
-        const y = Math.round(cy);
-        selRef.current = clampToImage({ x, y, w, h });
+      if (h > ih) {
+        h = ih - Math.round(0.1 * ih);
+        w = Math.round(h * aspectRatio);
       }
+      const x = ix + Math.round((iw - w) / 2);
+      const y = iy + Math.round((ih - h) / 2);
+      selRef.current = { x, y, w, h };
+    } else {
+      selRef.current = clampToImage(selRef.current);
+    }
+
+    draw();
+  };
+
+  useLayoutEffect(() => {
+    if (!imgReady) return;
+    resizeAll();
+    const onResize = () => { resizeAll(); };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgReady, aspectRatio, minWidth]);
+
+  // ===== pointer handlers (React on* версии) =====
+  const onPointerMoveCanvas = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const sel = selRef.current;
+    if (!sel) return;
+
+    const p = getCanvasPoint(e);
+    const canvas = canvasRef.current!;
+    const ratio = dpr();
+
+    if (!dragRef.current) {
+      const m = handleHit(p);
+      switch (m) {
+        case 'move': canvas.style.cursor = 'move'; break;
+        case 'resize-nw':
+        case 'resize-se': canvas.style.cursor = 'nwse-resize'; break;
+        case 'resize-ne':
+        case 'resize-sw': canvas.style.cursor = 'nesw-resize'; break;
+        default: canvas.style.cursor = 'default';
+      }
+      return;
+    }
+
+    const drag = dragRef.current!;
+    const minW = Math.max(minWidth * ratio, 1);
+
+    if (drag.mode === 'move') {
+      const dx = p.x - drag.start.x;
+      const dy = p.y - drag.start.y;
+      const nx = drag.origSel.x + dx;
+      const ny = drag.origSel.y + dy;
+      selRef.current = clampToImage({ x: nx, y: ny, w: drag.origSel.w, h: drag.origSel.h });
       draw();
-    };
+      return;
+    }
 
-    const onDown = (e: PointerEvent) => {
-      const sel = selRef.current;
-      if (!sel) return;
-      canvas.setPointerCapture(e.pointerId);
-      const p = getCanvasPoint(e);
-      const mode = handleHit(p);
-      if (mode === 'none') return;
-      dragRef.current = { mode, start: p, origSel: { ...sel } };
-    };
+    const signX = (drag.mode === 'resize-ne' || drag.mode === 'resize-se') ? 1 : -1;
+    const signY = (drag.mode === 'resize-se' || drag.mode === 'resize-sw') ? 1 : -1;
 
-    const onUp = (e: PointerEvent) => {
-      try { canvas.releasePointerCapture(e.pointerId); } catch {}
-      dragRef.current = null;
-      canvas.style.cursor = 'default';
-    };
+    const dx = (p.x - drag.start.x) * signX;
+    const dy = (p.y - drag.start.y) * signY;
+    const base = Math.abs(dx) > Math.abs(dy) ? dx : dy;
 
-    const onWheel = (e: WheelEvent) => {
-      // колесо — равномерный скейл рамки вокруг курсора
-      e.preventDefault();
-      const sel = selRef.current;
-      if (!sel) return;
-      const p = getCanvasPoint(e as any);
-      const fit = imgFitRef.current;
-      if (!pointInRect(p, { x: fit.x, y: fit.y, w: fit.w, h: fit.h })) return;
+    const w = Math.max(minW, drag.origSel.w + base * 2);
+    const h = Math.round(w / aspectRatio);
 
-      const ratio = dpr();
-      const minW = Math.max(minWidth * ratio, 1);
-
-      const zoomFactor = Math.exp((-e.deltaY) * 0.0012);
-      let w = Math.max(minW, Math.round(sel.w * zoomFactor));
-      let h = Math.round(w / aspectRatio);
-
-      // масштабировать «вокруг» курсора: стараемся сохранить относительное положение
-      const relX = (p.x - sel.x) / sel.w;
-      const relY = (p.y - sel.y) / sel.h;
-      let x = Math.round(p.x - relX * w);
-      let y = Math.round(p.y - relY * h);
-
+    if (drag.mode === 'resize-nw') {
+      const cx = drag.origSel.x + drag.origSel.w;
+      const cy = drag.origSel.y + drag.origSel.h;
+      const x = Math.round(cx - w);
+      const y = Math.round(cy - h);
       selRef.current = clampToImage({ x, y, w, h });
-      draw();
-    };
+    } else if (drag.mode === 'resize-ne') {
+      const cx = drag.origSel.x;
+      const cy = drag.origSel.y + drag.origSel.h;
+      const x = Math.round(cx);
+      const y = Math.round(cy - h);
+      selRef.current = clampToImage({ x, y, w, h });
+    } else if (drag.mode === 'resize-se') {
+      const x = drag.origSel.x;
+      const y = drag.origSel.y;
+      selRef.current = clampToImage({ x, y, w, h });
+    } else if (drag.mode === 'resize-sw') {
+      const cx = drag.origSel.x + drag.origSel.w;
+      const cy = drag.origSel.y;
+      const x = Math.round(cx - w);
+      const y = Math.round(cy);
+      selRef.current = clampToImage({ x, y, w, h });
+    }
+    draw();
+  };
 
-    canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerdown', onDown);
-    window.addEventListener('pointerup', onUp);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+  const onPointerDownCanvas = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!selRef.current) return;
+    (e.currentTarget as HTMLCanvasElement).setPointerCapture?.(e.pointerId);
+    const p = getCanvasPoint(e);
+    const mode = handleHit(p);
+    if (mode === 'none') return;
+    dragRef.current = { mode, start: p, origSel: { ...selRef.current } };
+  };
 
-    return () => {
-      canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('wheel', onWheel as any);
-    };
-  }, [minWidth, aspectRatio]);
+  const onPointerUpWindow = () => {
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = 'default';
+    dragRef.current = null;
+  };
 
-  // ===== клавиатура =====
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-      if (e.key === 'Enter') handleConfirm();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+    window.addEventListener('pointerup', onPointerUpWindow);
+    return () => window.removeEventListener('pointerup', onPointerUpWindow);
+  }, []);
+
+  const onWheelCanvas = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const sel = selRef.current;
+    if (!sel) return;
+
+    const p = getCanvasPoint(e as unknown as PointerEvent);
+    const fit = imgFitRef.current;
+    if (!pointInRect(p, { x: fit.x, y: fit.y, w: fit.w, h: fit.h })) return;
+
+    const ratio = dpr();
+    const minW = Math.max(minWidth * ratio, 1);
+
+    const zoomFactor = Math.exp((-e.deltaY) * 0.0008);
+    const w = Math.max(minW, Math.round(sel.w * zoomFactor));
+    const h = Math.round(w / aspectRatio);
+
+    const relX = (p.x - sel.x) / sel.w;
+    const relY = (p.y - sel.y) / sel.h;
+    const x = Math.round(p.x - relX * w);
+    const y = Math.round(p.y - relY * h);
+
+    selRef.current = clampToImage({ x, y, w, h });
+    draw();
+  };
 
   // ===== экспорт =====
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     const img = imgRef.current!;
     const sel = selRef.current!;
     const fit = imgFitRef.current;
 
     // перевод из canvas/backing в пиксели оригинала
-    const s = fit.scale;
+    const s  = fit.scale;
     const sx = Math.round((sel.x - fit.x) / s);
     const sy = Math.round((sel.y - fit.y) / s);
     const sw = Math.round(sel.w / s);
@@ -1251,68 +1221,291 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     const ctx = out.getContext('2d')!;
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img, csx, csy, csw, csh, 0, 0, csw, csh);
-    out.toBlob((b) => { if (b) onConfirm(b); }, 'image/png'); // один формат, без «настроек»
-  };
+    out.toBlob((b) => { if (b) onConfirm(b); }, 'image/png');
+  }, [onConfirm]);
+
+  // ===== клавиатура =====
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter') handleConfirm();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel, handleConfirm]);
 
   // ===== UI / Portal Logic =====
-  const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => {
-    setIsMounted(true);
-    // Блокируем скролл фона, пока открыт кроппер
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = 'auto'; // Возвращаем скролл при закрытии
-    };
-  }, []);
+  const [isMounted, setIsMounted] = useState(false);
 
-  const sizeText = useMemo(() => {
-    const fit = imgFitRef.current;
-    const sel = selRef.current;
-    if (!sel || !fit.scale) return '';
-    const w = Math.round(sel.w / fit.scale);
-    const h = Math.round(sel.h / fit.scale);
-    return `${w}×${h}px`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imgReady]);
+  useEffect(() => {
+    setIsMounted(true);
+    // Блокируем скролл фона, пока открыт кроппер
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
-  if (!isMounted) {
-    return null;
-  }
+  const sizeText = useMemo(() => {
+    const fit = imgFitRef.current;
+    const sel = selRef.current;
+    if (!sel || !fit.scale) return '';
+    const w = Math.round(sel.w / fit.scale);
+    const h = Math.round(sel.h / fit.scale);
+    return `${w}×${h}px`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgReady]);
 
-// ...
-  return createPortal(
-    // ШАГ 1: Говорим всему оверлею не ловить клики
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-black/80 backdrop-blur-sm p-4 pointer-events-none">
-      {/* ШАГ 2: Разрешаем клики для блока с кнопками */}
-      <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
-        <div className="text-slate-200 text-sm font-mono">
-          AR: {aspectRatio.toFixed(3)} <span className="text-slate-500 mx-2">•</span> {sizeText}
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition"
-          >
-            Cancel (Esc)
-          </button>
-          <button
-            onClick={handleConfirm}
-            className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400 transition"
-          >
-            Confirm (Enter)
-          </button>
-        </div>
-      </div>
+  if (!isMounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col p-4">
+      {/* Фон — без перехвата событий */}
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-hidden />
+
+      {/* Интерактивный слой */}
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-slate-200 text-sm font-mono">
+            AR: {aspectRatio.toFixed(3)} <span className="text-slate-500 mx-2">•</span> {sizeText}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onCancel}
+              className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition"
+            >
+              Cancel (Esc)
+            </button>
+            <button
+              onClick={handleConfirm}
+              className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400 transition"
+            >
+              Confirm (Enter)
+            </button>
+          </div>
+        </div>
+
+        <div ref={wrapperRef} className="flex-1 min-h-[260px]">
+          <div className="relative h-full w-full overflow-hidden rounded-md border border-slate-800 bg-slate-950/50">
+            <canvas
+              ref={canvasRef}
+              className="block h-full w-full select-none"
+              style={{ touchAction: 'none', pointerEvents: 'auto', cursor: 'default' }}
+              onPointerDown={onPointerDownCanvas}
+              onPointerMove={onPointerMoveCanvas}
+              onWheel={onWheelCanvas}
+            />
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+```
+
+---
+
+## Файл: `src/components/editor/ArrowPointer.tsx`
+
+```typescript
+// src/components/editor/ArrowPointer.tsx
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+
+type Vec2 = { x: number; y: number };
+
+// SVG-иконка жирной красной стрелки. Встроена прямо сюда, чтобы не было лишних файлов.
+const ArrowSvg = ({ rotation }: { rotation: number }) => (
+  <svg
+    width="100%"
+    height="100%"
+    viewBox="0 0 150 90"
+    preserveAspectRatio="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{
+      transform: `rotate(${rotation}deg)`,
+      filter: 'drop-shadow(2px 4px 6px rgba(0,0,0,0.7))',
+      pointerEvents: 'none',
+    }}
+  >
+    <path
+      d="M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z"
+      fill="#FF0000"
+      stroke="#6D0000"
+      strokeWidth="2.3"
+    />
+  </svg>
+);
+
+
+export const ArrowPointer: React.FC<{
+  imageSrc: string;
+  onConfirm: (blob: Blob) => void;
+  onCancel: () => void;
+}> = ({ imageSrc, onConfirm, onCancel }) => {
+  const [isMounted, setIsMounted] = useState(false);
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [arrowPos, setArrowPos] = useState<Vec2>({ x: 150, y: 150 });
+  const [arrowSize, setArrowSize] = useState(100);
+  const [arrowRotation, setArrowRotation] = useState(0);
+
+  // Загружаем основное изображение
+  useEffect(() => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = imageSrc;
+    image.onload = () => setImg(image);
+  }, [imageSrc]);
+
+  // Отрисовка
+  const draw = () => {
+    if (!img || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Подгоняем размер canvas под изображение
+    const parent = canvas.parentElement!;
+    const parentRect = parent.getBoundingClientRect();
+    const imgAspectRatio = img.width / img.height;
+    const parentAspectRatio = parentRect.width / parentRect.height;
+
+    let cssWidth, cssHeight; // Используем переменные для CSS размеров
+    if (imgAspectRatio > parentAspectRatio) {
+      cssWidth = parentRect.width;
+      cssHeight = parentRect.width / imgAspectRatio;
+    } else {
+      cssHeight = parentRect.height;
+      cssWidth = parentRect.height * imgAspectRatio;
+    }
+
+    // Задаем и внутренний размер (для качества), и CSS размер (для верстки)
+    canvas.width = img.width; // <<< ЗАДАЕМ МАКСИМАЛЬНОЕ КАЧЕСТВО
+    canvas.height = img.height;
+    
+    canvas.style.width = `${cssWidth}px`;   // <<< ЗАСТАВЛЯЕМ ВПИСАТЬСЯ В ЭКРАН
+    canvas.style.height = `${cssHeight}px`; // <<< ЗАСТАВЛЯЕМ ВПИСАТЬСЯ В ЭКРАН
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+
+  useLayoutEffect(() => {
+    draw();
+    window.addEventListener('resize', draw);
+    return () => window.removeEventListener('resize', draw);
+  }, [img]);
+  
+  // Клавиатура
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const handleConfirm = () => {
+    if (!img) return;
+    const offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = img.width;
+    offscreenCanvas.height = img.height;
+    const ctx = offscreenCanvas.getContext('2d')!;
+
+    // 1. Рисуем оригинал
+    ctx.drawImage(img, 0, 0);
+
+    // 2. Рисуем стрелку с ПРАВИЛЬНЫМ МАСШТАБИРОВАНИЕМ
+    const canvas = canvasRef.current!;
+    const scaleFactor = img.width / canvas.width;
+
+    ctx.save();
+    // Перемещаем начало координат в центр стрелки на исходном изображении
+    ctx.translate(arrowPos.x * scaleFactor, arrowPos.y * scaleFactor);
+    // Поворачиваем холст
+    ctx.rotate(arrowRotation * Math.PI / 180);
+    
+    // <<< ВОТ КЛЮЧЕВОЙ ФИКС: МАСШТАБИРУЕМ САМ ХОЛСТ
+    const arrowRenderSize = arrowSize * scaleFactor;
+    // viewBox у твоей стрелки 150x90. Будем масштабировать относительно ширины 150.
+    const pathScale = arrowRenderSize / 150; 
+    ctx.scale(pathScale, pathScale);
+
+    // Смещаем холст так, чтобы центр фигуры (75, 45) оказался в начале координат
+    ctx.translate(-75, -45); 
+    
+    // Задаем стили
+    ctx.fillStyle = '#FF0000';
+    ctx.strokeStyle = '#6D0000';
+    ctx.lineWidth = 2.3 / pathScale; // Компенсируем масштабирование для сохранения толщины линии
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 4;
+    
+    // Рисуем твою фигуру
+    const path = new Path2D("M50 0 L100 45 L70 45 L70 90 L30 90 L30 45 L0 45 Z");
+    ctx.fill(path);
+    ctx.stroke(path);
+    ctx.restore();
+
+    offscreenCanvas.toBlob(blob => {
+      if (blob) onConfirm(blob);
+    }, 'image/png');
+  };
+  
+  useEffect(() => {
+    setIsMounted(true);
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'auto'; };
+  }, []);
+
+  if (!isMounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col p-4 bg-black/80 backdrop-blur-sm">
+      <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
+        <p className="text-slate-200 text-sm">Перетащи стрелку, чтобы указать цель</p>
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700">Отмена</button>
+          <button onClick={handleConfirm} className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400">Подтвердить</button>
+        </div>
+      </div>
       
-      {/* ШАГ 3: Разрешаем клики для блока с канвасом */}
-      <div ref={wrapperRef} className="flex-1 min-h-[260px] pointer-events-auto">
-        <div className="relative h-full w-full overflow-hidden rounded-md border border-slate-800 bg-slate-950/50">
-          <canvas ref={canvasRef} className="block h-full w-full select-none touch-none" />
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
+      <div className="flex-1 min-h-0 relative flex items-center justify-center">
+        <canvas ref={canvasRef} className="max-w-full max-h-full block" />
+        <div
+          className="absolute cursor-move touch-none"
+          style={{
+            left: arrowPos.x,
+            top: arrowPos.y,
+            width: arrowSize,
+            height: arrowSize,
+            transform: 'translate(-50%, -50%)',
+          }}
+          onPointerDown={e => {
+            const el = e.currentTarget;
+            el.setPointerCapture(e.pointerId);
+            const onMove = (me: PointerEvent) => {
+              setArrowPos(p => ({ x: p.x + me.movementX, y: p.y + me.movementY }));
+            };
+            el.onpointermove = onMove;
+            el.onpointerup = () => el.onpointermove = null;
+          }}
+        >
+          <ArrowSvg rotation={arrowRotation} />
+        </div>
+      </div>
+
+      <div className="flex-shrink-0 mt-2 flex items-center justify-center gap-4 bg-slate-900/50 p-2 rounded-lg">
+        <label className="text-xs text-slate-300">Размер: <input type="range" min="30" max="300" value={arrowSize} onChange={e => setArrowSize(Number(e.target.value))} className="accent-cyan-500" /></label>
+        <label className="text-xs text-slate-300">Поворот: <input type="range" min="0" max="359" value={arrowRotation} onChange={e => setArrowRotation(Number(e.target.value))} className="accent-cyan-500" /></label>
+      </div>
+    </div>,
+    document.body
+  );
 };
 ```
 
@@ -1402,7 +1595,6 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
 
 ```typescript
 import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
-import Image from 'next/image';
 import { cx } from '@/lib/utils';
 import { ACCEPTED_FILE_TYPES } from '@/lib/types';
 import { Label } from '../ui/FormControls';
@@ -1513,29 +1705,37 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
     <>
       <div className="space-y-4 pt-3">
         {/* Блок загрузки */}
-        <div>
-          <Label title="Референс фона" />
-          <div className="flex items-center gap-3">
+            <div>
+            <Label title="Референс фона" />
             <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept={ACCEPTED_FILE_TYPES.join(',')}
-              className="hidden"
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept={ACCEPTED_FILE_TYPES.join(',')}
+                className="hidden"
             />
             <button
-              type="button"
-              onClick={handleButtonClick}
-              className="flex-shrink-0 text-sm font-semibold py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+                type="button"
+                onClick={handleButtonClick}
+                className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
             >
-              + Загрузить фон
+                {previewUrl ? 'Заменить фон' : '+ Загрузить фон'}
             </button>
-            <div className="w-12 h-12 bg-gray-950 rounded-md flex-shrink-0 relative overflow-hidden border border-gray-700">
-              {previewUrl && <Image src={previewUrl} alt="Reference preview" layout="fill" objectFit="cover" />}
+
+            {/* Новый блок предпросмотра, который появляется после загрузки */}
+            {previewUrl && (
+                <div className="mt-3 relative h-20 w-full flex items-center justify-center rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+                src={previewUrl}
+                alt="Reference preview"
+                className="h-full w-auto object-contain"
+            />
+                </div>
+            )}
+
+            {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
             </div>
-          </div>
-          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
-        </div>
 
         {/* Блок выбора модели */}
         <div>
@@ -2486,10 +2686,10 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
 ```typescript
 // src/components/sidebar/ProTools.tsx
 import React, { useState } from 'react';
-import { cx } from '@/lib/utils';
 import type { SidebarProps } from '../workspace/Sidebar.types';
 import { InstructionEditor } from './InstructionEditor';
-import { BackgroundReplacer } from './BackgroundReplacer'; // <<< 1. Импортируем новый инструмент
+import { TextureTransplanter } from './TextureTransplanter';
+import { BackgroundReplacer } from './BackgroundReplacer'; 
 
 
 // ProTools теперь должен знать о новой функции, которую он будет передавать
@@ -2558,16 +2758,223 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             </div>
           )}
         </div>
-        {/* <<< КОНЕЦ НОВОГО БЛОКА */}
-
-
-        {/* Остальные инструменты пока остаются заглушками */}
-        <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Текстуры</div>
+    
+        {/* <<< 2. НАЧАЛО: Наш новый блок "Замена Текстуры" */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button
+            type="button"
+            // onClick и стейт можно будет добавить позже для сворачивания
+            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+          >
+            ▼ Замена Текстуры
+          </button>
+          <div className="p-3 border-t border-gray-700/50">
+            <TextureTransplanter
+              onGenerate={props.onGenerateTextureReplacement}
+              isLoading={props.isLoading}
+              activeImageUrl={props.activeNode?.imageUrl ?? null}
+              sourceAspectRatio={props.sourceAspectRatio}
+            />
+          </div>
+        </div>
+        
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Замена Стиля</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Внедрение Объекта</div>
         <div className="p-3 bg-gray-900/50 border border-gray-700/50 rounded-lg text-xs text-gray-500 cursor-not-allowed">► Редактор по Стрелкам</div>
       </div>
     </div>
+  );
+};
+```
+
+---
+
+## Файл: `src/components/sidebar/TextureTransplanter.tsx`
+
+```typescript
+// src/components/sidebar/TextureTransplanter.tsx
+import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import { cx } from '@/lib/utils';
+import { ACCEPTED_FILE_TYPES } from '@/lib/types';
+import { Label } from '../ui/FormControls';
+import { ArrowPointer } from '../editor/ArrowPointer';
+import { UniversalCropper } from '../cropper/UniversalCropper'; // <<< 1. ИМПОРТ КРОППЕРА
+
+interface TextureTransplanterProps {
+  onGenerate: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
+  isLoading: boolean;
+  activeImageUrl: string | null;
+  sourceAspectRatio: number; // <<< 2. ДОБАВЛЕН ПРОПС
+}
+
+export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
+  onGenerate,
+  isLoading,
+  activeImageUrl,
+  sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+}) => {
+  // Этот стейт теперь хранит ГОТОВЫЙ, ОБРЕЗАННЫЙ файл
+  const [textureFile, setTextureFile] = useState<File | null>(null);
+  const [texturePreview, setTexturePreview] = useState<string | null>(null);
+  const [targetMapFile, setTargetMapFile] = useState<File | null>(null);
+  const [targetMapPreview, setTargetMapPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [isPointerEditorOpen, setIsPointerEditorOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // <<< 3. НОВЫЙ СТЕЙТ ДЛЯ УПРАВЛЕНИЯ КРОППЕРОМ
+  const [cropRequest, setCropRequest] = useState<string | null>(null);
+
+  const isReady = textureFile && targetMapFile && !isLoading;
+
+  useEffect(() => {
+    setTextureFile(null);
+    setTargetMapFile(null);
+  }, [activeImageUrl]);
+
+  useEffect(() => {
+    if (!textureFile) {
+      setTexturePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(textureFile);
+    setTexturePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [textureFile]);
+
+  useEffect(() => {
+    if (!targetMapFile) {
+      setTargetMapPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(targetMapFile);
+    setTargetMapPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [targetMapFile]);
+  
+  // <<< 4. ОБНОВЛЕННАЯ ЛОГИКА ЗАГРУЗКИ: ТЕПЕРЬ ОНА ОТКРЫВАЕТ КРОППЕР
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+
+    if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      return;
+    }
+    setError(null);
+    
+    // Создаем временный URL и отправляем его в стейт, чтобы открыть модалку кроппера
+    const url = URL.createObjectURL(file);
+    setCropRequest(url);
+  };
+
+  // <<< 5. НОВЫЕ ОБРАБОТЧИКИ ДЛЯ РЕЗУЛЬТАТОВ КРОППЕРА
+  const handleCropConfirm = (croppedBlob: Blob) => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+
+    const croppedFile = new File([croppedBlob], "texture_crop.png", { type: "image/png" });
+    setTextureFile(croppedFile);
+  };
+
+  const handleCropCancel = () => {
+    if (cropRequest) URL.revokeObjectURL(cropRequest);
+    setCropRequest(null);
+  };
+  
+  const handlePointerConfirm = (blob: Blob) => {
+    const file = new File([blob], 'target_map.png', { type: 'image/png' });
+    setTargetMapFile(file);
+    setIsPointerEditorOpen(false);
+  };
+
+  const handleSubmit = () => {
+    if (!isReady || !targetMapFile || !textureFile) return;
+    onGenerate(targetMapFile, textureFile, 'gemini');
+  };
+
+  return (
+    <>
+      <div className="space-y-4 pt-3">
+        {/* Блок 1: Загрузка Текстуры */}
+        <div>
+          <Label title="1. Загрузите текстуру" />
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept={ACCEPTED_FILE_TYPES.join(',')}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+          >
+            {texturePreview ? 'Заменить текстуру' : '+ Выбрать текстуру'}
+          </button>
+          {texturePreview && (
+            <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+              <img src={texturePreview} alt="Texture preview" className="h-full w-full object-cover" />
+            </div>
+          )}
+        </div>
+
+        {/* Блок 2: Указание Цели */}
+        <div>
+          <Label title="2. Укажите цель на фото" />
+          <button
+            type="button"
+            onClick={() => setIsPointerEditorOpen(true)}
+            disabled={!activeImageUrl}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+          >
+            {targetMapPreview ? 'Изменить указатель' : '🎯 Поставить указатель'}
+          </button>
+           {targetMapPreview && (
+            <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+              <img src={targetMapPreview} alt="Target map preview" className="h-full w-auto mx-auto object-contain" />
+            </div>
+          )}
+        </div>
+        
+        {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+
+        {/* Кнопка действия */}
+        <button
+          onClick={handleSubmit}
+          disabled={!isReady}
+          className={cx(
+            "w-full text-sm font-semibold py-2.5 rounded-lg transition",
+            isReady
+              ? "bg-cyan-600 hover:bg-cyan-500 text-white"
+              : "bg-gray-700 text-gray-400 cursor-not-allowed"
+          )}
+        >
+          {isLoading ? "Обработка..." : "Применить Текстуру"}
+        </button>
+      </div>
+
+      {isPointerEditorOpen && activeImageUrl && (
+        <ArrowPointer
+          imageSrc={activeImageUrl}
+          onConfirm={handlePointerConfirm}
+          onCancel={() => setIsPointerEditorOpen(false)}
+        />
+      )}
+
+      {/* <<< 6. ДОБАВЛЕН УСЛОВНЫЙ РЕНДЕР КРОППЕРА */}
+      {cropRequest && (
+        <UniversalCropper
+          imageSrc={cropRequest}
+          aspectRatio={sourceAspectRatio}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
+    </>
   );
 };
 ```
@@ -3225,6 +3632,8 @@ export interface SidebarProps {
   isReadyToGenerate: boolean;
   isLoading: boolean;
   onGenerate: () => void;
+  onGenerateBackgroundReplacement: (file: File, targets: { window: boolean; door: boolean }, model: 'gemini' | 'seedream') => void;
+  onGenerateTextureReplacement: (targetMapFile: File, textureFile: File, model: 'gemini' | 'seedream') => void;
   onCancel: () => void;
   onClear: () => void;
   error: string | null;
@@ -3243,6 +3652,7 @@ export interface SidebarProps {
   doorView: string;
   setDoorView: (value: string) => void;
   sourceAspectRatio: number;
+  activeNode: GenerationNode | null;
 }
 ```
 
@@ -3596,6 +4006,62 @@ export function useImageWorkspace() {
     if (e.key === "Escape" && isLoading) onCancel();
   };
 
+  const onGenerateTextureReplacement = async (
+    targetMapFile: File, // сауна + стрелка
+    textureFile: File,   // текстура
+    model: 'gemini' | 'seedream'
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    const prompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки, если что
+
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
+    formData.append("reference_image", textureFile); // Референс - текстура
+    formData.append("prompt", prompt);
+    formData.append("negative_prompt", negativePrompt);
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка при генерации.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
   const onGenerateBackgroundReplacement = async (
     referenceFile: File,
     targets: { window: boolean; door: boolean },
@@ -3606,7 +4072,7 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    let targetAreas = [];
+    const targetAreas = [];
     if (targets.window) targetAreas.push("the windows");
     if (targets.door) targetAreas.push("the glass door");
     const promptTarget = targetAreas.join(" and ");
@@ -3963,6 +4429,7 @@ export function useImageWorkspace() {
     onJsonFileChange,
     onGenerate,
     onGenerateBackgroundReplacement,
+    onGenerateTextureReplacement,
     onClear,
     onCancel,
     onKeyDown,
@@ -4302,7 +4769,7 @@ export type PersistState = {
 ```typescript
 // src/lib/utils.ts
 
-import { PersistState } from "./types";
+import { PersistState, GenerationNode } from "./types";
 
 /**
  * Утилита для склейки CSS-классов.
@@ -4346,14 +4813,14 @@ export function savePersist(s: PersistState) {
     // Вырезаем жирные Data URL из baseResults
     if (stateToSave.baseResults) {
       stateToSave.baseResults.forEach((node: GenerationNode) => {
-        delete (node as any).sourceImageUrl;
+        delete (node as Record<string, unknown>).sourceImageUrl;
       });
     }
     // И из всех воркспейсов
     if (stateToSave.workspaces) {
       Object.keys(stateToSave.workspaces).forEach(wsId => {
         stateToSave.workspaces[wsId].forEach((node: GenerationNode) => {
-          delete (node as any).sourceImageUrl;
+          delete (node as Record<string, unknown>).sourceImageUrl;
         });
       });
     }
