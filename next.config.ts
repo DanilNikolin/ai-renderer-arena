@@ -5,11 +5,15 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "fal.run", // Оставляем на всякий случай
+        hostname: "fal.run",
       },
       {
         protocol: "https",
-        hostname: "v3.fal.media", // <<< ДОБАВЛЕНО: Явно разрешаем этот
+        hostname: "v3.fal.media",
+      },
+      { 
+        protocol: "https",
+        hostname: "v3b.fal.media",
       },
     ],
   },

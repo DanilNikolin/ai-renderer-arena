@@ -155,7 +155,6 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
                     maxLength={180}
                     value={helperPrompt}
                     onChange={(e) => onHelperPromptChange(e.target.value)}
-                    disabled={fileIsPresent}
                     className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
                     placeholder={referenceFile ? "Пример: применить только цветовую палитру" : "Пример: стиль киберпанк, неоновое освещение"}
                 />

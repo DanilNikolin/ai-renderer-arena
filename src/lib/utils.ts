@@ -41,6 +41,20 @@ export function savePersist(s: PersistState) {
     // Создаем глубокую копию, чтобы не мутировать оригинальный state
     const stateToSave = JSON.parse(JSON.stringify(s));
 
+    const MAX_BASE_RESULTS = 20;
+    const MAX_PRO_HISTORY_NODES = 50;
+
+    if (stateToSave.baseResults && stateToSave.baseResults.length > MAX_BASE_RESULTS) {
+      stateToSave.baseResults = stateToSave.baseResults.slice(-MAX_BASE_RESULTS);
+    }
+    if (stateToSave.workspaces) {
+      Object.keys(stateToSave.workspaces).forEach(wsId => {
+        if (stateToSave.workspaces[wsId].length > MAX_PRO_HISTORY_NODES) {
+          stateToSave.workspaces[wsId] = stateToSave.workspaces[wsId].slice(-MAX_PRO_HISTORY_NODES);
+        }
+      });
+    }
+
     // Вырезаем жирные Data URL из baseResults
     if (stateToSave.baseResults) {
       stateToSave.baseResults.forEach((node: GenerationNode) => {

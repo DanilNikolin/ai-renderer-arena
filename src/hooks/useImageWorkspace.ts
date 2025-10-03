@@ -264,7 +264,11 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
     let prompt: string;
-    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image.
+      Crucially:
+      1. The red arrow must be completely removed from the final result.
+      2. Preserve the MACRO-geometry: the overall shape of the object, as well as the scene's lighting and shadows.
+      3. Preserve the MICRO-geometry: If the target object is made of individual components like planks, boards, or tiles, you MUST maintain the original seams, gaps, and grooves between them. The new texture should be applied to each individual component, not to the object as a single flat surface.`;
     const userClarification = helperPrompts.texture.trim();
 
     if (userClarification) {
@@ -342,7 +346,11 @@ export function useImageWorkspace() {
     const userClarification = helperPrompts.style.trim();
 
     if (referenceFile) {
-        const basePrompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+        const basePrompt = `Redraw the **source image** to match the artistic style of the **reference image**.
+      **CRITICAL:**
+      1. Preserve the exact geometry, object placement, and composition of the **source image**.
+      2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
+      3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
         prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
     } else if (userClarification) {
         prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;

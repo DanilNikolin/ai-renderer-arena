@@ -197,17 +197,16 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
           </div>
         </div>
         <div>
-            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите фон текстом"} />
+            <Label title={referenceFile ? "Уточнение (опционально)" : "Описание фона (если нет файла)"} />
             <div className="relative">
                 <textarea
-                    rows={3}
-                    maxLength={180}
-                    value={helperPrompt}
-                    onChange={(e) => onHelperPromptChange(e.target.value)}
-                    disabled={fileIsPresent}
-                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                    placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
-                />
+                      rows={3}
+                      maxLength={180}
+                      value={helperPrompt}
+                      onChange={(e) => onHelperPromptChange(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
+                  />
                 <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
                     {helperPrompt.length}/180
                 </span>

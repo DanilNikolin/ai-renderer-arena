@@ -227,7 +227,7 @@ export const MultiArrowEditor: React.FC<{
 
       // Стрелка
       ctx.save();
-      ctx.translate(realX + realSize / 2, realY + realSize / 2);
+      ctx.translate(realX, realY);
       ctx.rotate((arrow.rotation * Math.PI) / 180);
 
       const pathScale = realSize / 150; // viewBox width = 150
