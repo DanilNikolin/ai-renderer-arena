@@ -37,31 +37,35 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         onDrop={onDrop}
         onDragOver={(e) => e.preventDefault()}
         className={cx(
-          "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
-          "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
+          "group border border-dashed rounded-lg cursor-pointer transition",
+          "border-gray-700 hover:border-cyan-500 bg-gray-900/50",
+          "flex items-center justify-center min-h-[92px]" // Внешний контейнер теперь flex-контейнер
         )}
         title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
       >
-        {sourceFile ? (
-          <div className="text-left space-y-1">
-            <p className="text-cyan-400 text-sm font-medium truncate">
-              {sourceFile.name}
-            </p>
-            <p className="text-xs text-gray-500">
-              {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
-              {sourceFile.type.replace("image/", "").toUpperCase()}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <p className="text-sm text-gray-400">
-              Перетащи или нажми, чтобы выбрать
-            </p>
-            <p className="text-xs text-gray-500">
-              {ACCEPTED_FILE_TYPES.map(t => t.replace('image/', '')).join(', ').toUpperCase()} • до {MAX_FILE_SIZE_MB}MB • Ctrl+V
-            </p>
-          </div>
-        )}
+        {/* А весь контент живет в отдельном блоке, который уже не влияет на рамку */}
+        <div className="p-2 text-center">
+          {sourceFile ? (
+            <div className="text-left space-y-1">
+              <p className="text-cyan-400 text-sm font-medium truncate">
+                {sourceFile.name}
+              </p>
+              <p className="text-xs text-gray-500">
+                {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
+                {sourceFile.type.replace("image/", "").toUpperCase()}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-sm text-gray-400">
+                Перетащи или нажми, чтобы выбрать
+              </p>
+              <p className="text-xs text-gray-500">
+                {ACCEPTED_FILE_TYPES.map(t => t.replace('image/', '')).join(', ').toUpperCase()} • до {MAX_FILE_SIZE_MB}MB • Ctrl+V
+              </p>
+            </div>
+          )}
+        </div>
         <input
           id="image-upload"
           type="file"

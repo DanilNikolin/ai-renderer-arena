@@ -172,11 +172,15 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "fal.run", // Оставляем на всякий случай
+        hostname: "fal.run",
       },
       {
         protocol: "https",
-        hostname: "v3.fal.media", // <<< ДОБАВЛЕНО: Явно разрешаем этот
+        hostname: "v3.fal.media",
+      },
+      { 
+        protocol: "https",
+        hostname: "v3b.fal.media",
       },
     ],
   },
@@ -1812,7 +1816,7 @@ export const MultiArrowEditor: React.FC<{
 
       // Стрелка
       ctx.save();
-      ctx.translate(realX + realSize / 2, realY + realSize / 2);
+      ctx.translate(realX, realY);
       ctx.rotate((arrow.rotation * Math.PI) / 180);
 
       const pathScale = realSize / 150; // viewBox width = 150
@@ -2086,7 +2090,7 @@ type ModelForBg = 'gemini' | 'seedream';
 
 interface BackgroundReplacerProps {
   onGenerate: (
-    referenceFile: File,
+    referenceFile: File | null, 
     targets: { window: boolean; door: boolean },
     model: ModelForBg
   ) => void;
@@ -2114,6 +2118,9 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   // Этот стейт открывает/закрывает кроппер и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
 
+  const fileIsPresent = !!referenceFile;
+  const textIsPresent = helperPrompt.trim().length > 0;
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isReady = (referenceFile || helperPrompt.trim()) && (targets.window || targets.door) && !isLoading;
@@ -2204,6 +2211,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
             <button
                 type="button"
                 onClick={handleButtonClick}
+                disabled={textIsPresent} 
                 className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
             >
                 {previewUrl ? 'Заменить фон' : '+ Загрузить фон'}
@@ -2218,6 +2226,11 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
                 alt="Reference preview"
                 className="h-full w-auto object-contain"
             />
+            <button 
+                onClick={() => setReferenceFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать фон"
+              >✕</button>
                 </div>
             )}
 
@@ -2266,16 +2279,16 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
           </div>
         </div>
         <div>
-            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите фон текстом"} />
+            <Label title={referenceFile ? "Уточнение (опционально)" : "Описание фона (если нет файла)"} />
             <div className="relative">
                 <textarea
-                    rows={3}
-                    maxLength={180}
-                    value={helperPrompt}
-                    onChange={(e) => onHelperPromptChange(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                    placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
-                />
+                      rows={3}
+                      maxLength={180}
+                      value={helperPrompt}
+                      onChange={(e) => onHelperPromptChange(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      placeholder={referenceFile ? "Пример: сделать лес более туманным" : "Пример: заснеженные горы на рассвете"}
+                  />
                 <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
                     {helperPrompt.length}/180
                 </span>
@@ -3134,6 +3147,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           {objectPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
               <Image src={objectPreview} alt="Object preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setObjectFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать объект"
+              >✕</button>
             </div>
           )}
         </div>
@@ -3152,6 +3170,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
               <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setTargetMapFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать указатель"
+              >✕</button>
             </div>
           )}
         </div>
@@ -3459,7 +3482,7 @@ type ProToolsProps = Omit<SidebarProps, 'handleTabChange' | 'onGenerateBackgroun
 };
 
 export const ProTools: React.FC<ProToolsProps> = (props) => {
-  const [isEditorOpen, setIsEditorOpen] = useState(true);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
   const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
@@ -3473,6 +3496,15 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [arrowMapBlob, setArrowMapBlob] = useState<Blob | null>(null);
   const [arrowMapPreviewUrl, setArrowMapPreviewUrl] = useState<string | null>(null);
   const [arrowInstructions, setArrowInstructions] = useState<string>('');
+
+  const handleResetArrowEditor = () => {
+    setArrowMapBlob(null);
+    setArrowInstructions('');
+    if (arrowMapPreviewUrl) {
+      URL.revokeObjectURL(arrowMapPreviewUrl);
+      setArrowMapPreviewUrl(null);
+    }
+  };
 
   // сброс при смене активного узла
   useEffect(() => {
@@ -3500,19 +3532,10 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
 
   // отправка в API
   const handleSendArrowEdits = () => {
-    // ЛОВУШКА №1: Проверяем, что клик вообще сработал.
-    console.log('--- [ProTools] Клик по "Отправить" зафиксирован. ---');
-
-    // ЛОВУШКА №2: Смотрим, что у нас в руках перед выстрелом.
-    console.log('--- [ProTools] Проверяем данные:', { arrowMapBlob, arrowInstructions });
-
-    if (!arrowMapBlob || !arrowInstructions) {
-      // ЛОВУШКА №3: Если мы остановились, то почему.
+    if (!arrowMapBlob || !arrowInstructions.trim()) {
       console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
       return;
     }
-
-    console.log('--- [ProTools] Все ок, передаем управление в useImageWorkspace... ---');
     props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
   };
 
@@ -3687,28 +3710,21 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                         sizes="150px"
                         className="object-contain"
                       />
+                      <button 
+                        onClick={handleResetArrowEditor}
+                        className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                        title="Изменить/Убрать карту"
+                      >✕</button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => {
-                        if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
-                        setArrowMapPreviewUrl(null);
-                      }}
-                      className="text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md py-2"
-                      type="button"
-                    >
-                      Изменить
-                    </button>
-                    <button
-                      onClick={handleSendArrowEdits}
-                      className="text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2"
-                      type="button"
-                    >
-                      Отправить
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleSendArrowEdits}
+                    className="w-full text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2.5"
+                    type="button"
+                  >
+                    Применить правки
+                  </button>
                 </div>
               ) : (
                 // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
@@ -3799,6 +3815,8 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   // Управляет открытием/закрытием кроппера и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileIsPresent = !!referenceFile;
+  const textIsPresent = helperPrompt.trim().length > 0;
 
   const isReady = (referenceFile || helperPrompt.trim()) && !isLoading;
 
@@ -3847,7 +3865,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady) return; // <<< УБИРАЕМ ПРОВЕРКУ !referenceFile
+    if (!isReady) return; 
     onGenerate(referenceFile, selectedModel);
   };
 
@@ -3867,6 +3885,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
+            disabled={textIsPresent}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
           >
             {previewUrl ? 'Заменить стиль' : '+ Загрузить стиль'}
@@ -3881,6 +3900,11 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
                 sizes="120px"
                 className="object-contain"
               />
+              <button 
+                onClick={() => setReferenceFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать стиль"
+              >✕</button>
             </div>
           )}
           {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
@@ -4089,6 +4113,11 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
           {texturePreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
               <Image src={texturePreview} alt="Texture preview" fill sizes="120px" className="object-cover" />
+              <button 
+                onClick={() => setTextureFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать текстуру"
+              >✕</button>
             </div>
           )}
         </div>
@@ -4107,6 +4136,11 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
            {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
               <Image src={targetMapPreview} alt="Target map preview" fill sizes="120px" className="object-contain" />
+              <button 
+                onClick={() => setTargetMapFile(null)}
+                className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
+                title="Убрать указатель"
+              >✕</button>
             </div>
           )}
         </div>
@@ -4843,6 +4877,18 @@ export interface SidebarProps {
   setDoorView: (value: string) => void;
   sourceAspectRatio: number;
   activeNode: GenerationNode | null;
+  helperPrompts: {
+    background: string;
+    style: string;
+    texture: string;
+    object: string;
+  };
+  setHelperPrompts: React.Dispatch<React.SetStateAction<{
+    background: string;
+    style: string;
+    texture: string;
+    object: string;
+  }>>;
 }
 ```
 
@@ -5236,7 +5282,11 @@ export function useImageWorkspace() {
     setError(null);
     abortControllerRef.current = new AbortController();
     let prompt: string;
-    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image. Crucially: 1. The red arrow must be completely removed from the final result. 2. Preserve all other details of the source image: lighting, shadows, geometry, and un-targeted objects. The new texture must seamlessly integrate into the existing scene.`;
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image.
+      Crucially:
+      1. The red arrow must be completely removed from the final result.
+      2. Preserve the MACRO-geometry: the overall shape of the object, as well as the scene's lighting and shadows.
+      3. Preserve the MICRO-geometry: If the target object is made of individual components like planks, boards, or tiles, you MUST maintain the original seams, gaps, and grooves between them. The new texture should be applied to each individual component, not to the object as a single flat surface.`;
     const userClarification = helperPrompts.texture.trim();
 
     if (userClarification) {
@@ -5314,7 +5364,11 @@ export function useImageWorkspace() {
     const userClarification = helperPrompts.style.trim();
 
     if (referenceFile) {
-        const basePrompt = `Transfer the artistic style from the reference image to the source image. Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+        const basePrompt = `Redraw the **source image** to match the artistic style of the **reference image**.
+      **CRITICAL:**
+      1. Preserve the exact geometry, object placement, and composition of the **source image**.
+      2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
+      3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
         prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
     } else if (userClarification) {
         prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
@@ -6303,6 +6357,20 @@ export function savePersist(s: PersistState) {
   try {
     // Создаем глубокую копию, чтобы не мутировать оригинальный state
     const stateToSave = JSON.parse(JSON.stringify(s));
+
+    const MAX_BASE_RESULTS = 20;
+    const MAX_PRO_HISTORY_NODES = 50;
+
+    if (stateToSave.baseResults && stateToSave.baseResults.length > MAX_BASE_RESULTS) {
+      stateToSave.baseResults = stateToSave.baseResults.slice(-MAX_BASE_RESULTS);
+    }
+    if (stateToSave.workspaces) {
+      Object.keys(stateToSave.workspaces).forEach(wsId => {
+        if (stateToSave.workspaces[wsId].length > MAX_PRO_HISTORY_NODES) {
+          stateToSave.workspaces[wsId] = stateToSave.workspaces[wsId].slice(-MAX_PRO_HISTORY_NODES);
+        }
+      });
+    }
 
     // Вырезаем жирные Data URL из baseResults
     if (stateToSave.baseResults) {

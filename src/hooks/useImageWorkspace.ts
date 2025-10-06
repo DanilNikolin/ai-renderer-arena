@@ -343,20 +343,23 @@ export function useImageWorkspace() {
     abortControllerRef.current = new AbortController();
 
     let prompt: string;
-    const userClarification = helperPrompts.style.trim();
+      const userClarification = helperPrompts.style.trim();
 
-    if (referenceFile) {
-        const basePrompt = `Redraw the **source image** to match the artistic style of the **reference image**.
-      **CRITICAL:**
-      1. Preserve the exact geometry, object placement, and composition of the **source image**.
-      2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
-      3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
-        prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
-    } else if (userClarification) {
-        prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
-    } else {
-        return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
-    }
+      if (referenceFile) {
+          // Твой промт, но в виде четкого приказа
+          const basePrompt = `Redraw the source image (image 1), adhering to two strict rules:
+1.  **PRESERVE:** You must preserve ONLY the geometry and composition of the source image.
+2.  **TRANSFER:** You must transfer the style from the reference image (image 2) down to the smallest detail, including its exact color palette, lighting scheme, and surface textures.`;
+          prompt = userClarification ? `${basePrompt}\nAdditional user hint: "${userClarification}".` : basePrompt;
+
+      } else if (userClarification) {
+          // Та же логика для текстового описания
+          prompt = `Redraw the source image to perfectly match the following style: "${userClarification}".
+CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. The final result must match the described style down to the smallest detail in terms of color, lighting, and texture.`;
+
+      } else {
+          return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+      }
     // Превращаем URL активной сауны в файл для отправки
     let sourceImageFile: File;
     try {
@@ -443,13 +446,13 @@ export function useImageWorkspace() {
         const userClarification = helperPrompts.background.trim();
 
         if (referenceFile) {
-            const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
-            prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
-        } else if (userClarification) {
-            prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
-        } else {
-            return fail("Не указан ни файл-референс, ни текстовое описание фона.");
-        }
+    const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+        prompt = userClarification ? `${basePrompt} User clarification: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+        prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+    } else {
+        return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+    }
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
