@@ -27,7 +27,8 @@ ai-renderer-arena
 │   │   │   └── UniversalCropper.tsx
 │   │   ├── editor
 │   │   │   ├── ArrowPointer.tsx
-│   │   │   └── MultiArrowEditor.tsx
+│   │   │   ├── MultiArrowEditor.tsx
+│   │   │   └── PhotoboothModal.tsx
 │   │   ├── sidebar
 │   │   │   ├── ActionButtons.tsx
 │   │   │   ├── BackgroundReplacer.tsx
@@ -40,6 +41,7 @@ ai-renderer-arena
 │   │   │   ├── ModelSelector.tsx
 │   │   │   ├── ModelSettings.tsx
 │   │   │   ├── ObjectInjector.tsx
+│   │   │   ├── ObjectInjector3D.tsx
 │   │   │   ├── ProTools.tsx
 │   │   │   ├── PromptEngineer.tsx
 │   │   │   ├── StyleTransplanter.tsx
@@ -206,11 +208,13 @@ export default nextConfig;
   },
   "dependencies": {
     "@fal-ai/client": "^1.6.2",
+    "@types/three": "^0.180.0",
     "gpt-tokenizer": "^3.0.1",
     "next": "^15.5.3",
     "openai": "^5.20.3",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -1997,6 +2001,392 @@ export const MultiArrowEditor: React.FC<{
 
 ---
 
+## Файл: `src/components/editor/PhotoboothModal.tsx`
+
+```typescript
+// src/components/editor/PhotoboothModal.tsx
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+interface PhotoboothModalProps {
+  modelFile: File;
+  onConfirm: (targetMapBlob: Blob, referenceObjectBlob: Blob) => void; // Возвращает ДВА blob'а
+  onCancel: () => void;
+  saunaImageUrl?: string | null;
+}
+
+// Хелпер, чтобы превратить callback-ад в современный Promise
+const getCanvasBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+    }, 'image/png');
+  });
+};
+
+export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
+  modelFile,
+  onConfirm,
+  onCancel,
+  saunaImageUrl,
+}) => {
+  const mountRef = useRef<HTMLDivElement>(null);
+
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const modelUrlRef = useRef<string | null>(null);
+
+  // Храним загруженную текстуру фона, чтобы корректно dispose() в cleanup
+  const backgroundTextureRef = useRef<THREE.Texture | null>(null);
+
+  // Реф на саму модель (для временной подмены материалов)
+  const modelRef = useRef<THREE.Group | null>(null);
+
+  // === ШАГ 1: Стейт для хранения точных размеров исходного фона ===
+  const [saunaDims, setSaunaDims] = useState<{ w: number; h: number } | null>(null);
+
+  // === ШАГ 2: Сначала грузим картинку и узнаём её реальные размеры ===
+  useEffect(() => {
+    // Если URL нет — выставим дефолт (можно рендерить без фона)
+    if (!saunaImageUrl) {
+      setSaunaDims({ w: 1024, h: 1024 });
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      setSaunaDims({ w: img.naturalWidth, h: img.naturalHeight });
+    };
+    img.onerror = () => {
+      console.error('Не удалось загрузить фоновое изображение для определения размеров.');
+      setSaunaDims({ w: 1024, h: 1024 }); // Фоллбэк на случай ошибки
+    };
+    img.src = saunaImageUrl;
+  }, [saunaImageUrl]);
+
+  const handleConfirm = useCallback(async () => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const model = modelRef.current;
+    const controls = controlsRef.current;
+    if (!renderer || !scene || !camera || !model || !controls) return;
+
+    // --- Снимок #1: Карта цели (фон + красный клон) ---
+    const redMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const modelClone = model.clone();
+    modelClone.traverse((node: THREE.Object3D) => {
+      if ((node as any).isMesh) {
+        (node as THREE.Mesh).material = redMaterial;
+      }
+    });
+
+    model.visible = false;
+    scene.add(modelClone);
+
+    renderer.render(scene, camera);
+    const targetMapBlob = await getCanvasBlob(renderer.domElement);
+
+    scene.remove(modelClone);
+    model.visible = true;
+    redMaterial.dispose();
+
+    // --- Снимок #2: Референс (крупный план с сохранением ракурса) ---
+    const originalBackground = scene.background;
+
+    // Сохраняем состояние камеры и контролов
+    const originalCamPos = camera.position.clone();
+    const originalTarget = controls.target.clone();
+
+    // Временно ставим белый фон
+    scene.background = new THREE.Color(0xffffff);
+    renderer.setClearAlpha(1.0);
+
+    // Вычисляем зум, сохраняем угол обзора
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    // 1) Идеальная дистанция до объекта
+    const distance = (size.length() * 0.5) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2));
+
+    // 2) Вектор направления от текущей позиции камеры к её цели
+    const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+
+    // 3) Новая позиция камеры: центр объекта + вектор * дистанция
+    camera.position.copy(center).add(direction.multiplyScalar(distance));
+
+    // 4) Смотрим на центр объекта
+    controls.target.copy(center);
+    controls.update();
+
+    renderer.render(scene, camera);
+    const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
+
+    // Восстанавливаем камеру и фон
+    scene.background = originalBackground;
+    camera.position.copy(originalCamPos);
+    controls.target.copy(originalTarget);
+    controls.update();
+
+    onConfirm(targetMapBlob, referenceObjectBlob);
+  }, [onConfirm]);
+
+  useEffect(() => {
+    console.log('[PhotoboothModal] Получен URL подложки:', saunaImageUrl);
+
+    // Ждём, пока не узнаем точные размеры
+    if (!saunaDims) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    if (!mountRef.current) return;
+    const currentMount = mountRef.current;
+
+    // === ИНИЦИАЛИЗАЦИЯ THREE.JS ===
+    // 1) Сцена
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
+
+    // 2) Рендерер
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true, // оставим прозрачность на всякий случай
+      preserveDrawingBuffer: true, // нужно для toBlob()/toDataURL
+    });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+
+    // ВАЖНО: Фиксируем разрешение жёстко под размеры исходной картинки.
+    renderer.setPixelRatio(1); // без умножения на DPR — нам нужна 1:1 карта
+    renderer.setSize(saunaDims.w, saunaDims.h);
+
+    // Чтобы канвас красиво вписывался в контейнер без искажений:
+    renderer.domElement.style.cssText = 'width: 100%; height: 100%; object-fit: contain;';
+
+    // фон будем рисовать через scene.background => пусть канвас очищается непрозрачно
+    renderer.setClearAlpha(1.0);
+    currentMount.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    // 3) Камера — соотношение строго по исходнику
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      saunaDims.w / saunaDims.h,
+      0.01,
+      5000
+    );
+    camera.position.set(0, 0, 5);
+    cameraRef.current = camera;
+
+    // 4) Свет
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+    directionalLight.position.set(5, 10, 7.5);
+    scene.add(directionalLight);
+
+    // 5) Контролы
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 0, 0);
+    controls.update();
+    controlsRef.current = controls;
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.enableZoom = true;
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.DOLLY,
+    };
+
+    // === СТАТИЧНЫЙ ФОН НА ВЕСЬ КАДР (НЕ ДВИГАЕТСЯ И НЕ ЗУМИТСЯ) ===
+    if (saunaImageUrl) {
+      const textureLoader = new THREE.TextureLoader();
+      // @ts-ignore
+      textureLoader.setCrossOrigin?.('anonymous');
+
+      textureLoader.load(
+        saunaImageUrl,
+        (tex) => {
+          if (!sceneRef.current) {
+            tex.dispose();
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.generateMipmaps = true;
+          tex.needsUpdate = true;
+
+          backgroundTextureRef.current = tex;
+          scene.background = tex; // ключевая строка
+        },
+        undefined,
+        (err) => {
+          console.warn('Не удалось загрузить фон (scene.background):', err);
+        }
+      );
+    } else {
+      scene.background = null;
+    }
+
+    // 6) Загрузчик модели
+    const modelUrl = URL.createObjectURL(modelFile);
+    modelUrlRef.current = modelUrl;
+
+    // <<< Общая функция для обработки загруженной модели, чтобы не дублировать код
+    const onModelLoad = (model: THREE.Group) => {
+        modelRef.current = model;
+        scene.add(model);
+
+        // Вычисляем габариты и центр (код тот же, что и был)
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const radius = size.length() * 0.5;
+        model.position.sub(center);
+        const fov = THREE.MathUtils.degToRad(camera.fov);
+        const distance = radius / Math.sin(fov / 2);
+        camera.position.set(0, 0, distance * 1.2);
+        controls.target.set(0, 0, 0);
+        controls.update();
+    };
+
+    const onError = (error: unknown) => {
+      console.error('Ошибка загрузки модели:', error);
+      alert('Не удалось загрузить 3D модель.');
+    };
+
+    // <<< Логика выбора загрузчика по расширению файла
+    const fileName = modelFile.name.toLowerCase();
+    if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
+      const loader = new GLTFLoader();
+      loader.load(modelUrl, (gltf) => onModelLoad(gltf.scene), undefined, onError);
+    } else if (fileName.endsWith('.obj')) {
+      const loader = new OBJLoader();
+      loader.load(modelUrl, onModelLoad, undefined, onError);
+    } else {
+      onError(new Error(`Неподдерживаемый формат файла: ${fileName}`));
+    }
+
+    // 7) Рендер-цикл
+    const animate = () => {
+      rafRef.current = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera); // фон (scene.background) рисуется автоматически
+    };
+    animate();
+
+    // 8) Горячие клавиши
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter') handleConfirm();
+    };
+    window.addEventListener('keydown', onKey);
+
+    // 9) Очистка
+    return () => {
+      window.removeEventListener('keydown', onKey);
+
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+
+      if (controlsRef.current) {
+        controlsRef.current.dispose();
+        controlsRef.current = null;
+      }
+
+      // чистим URL модели
+      if (modelUrlRef.current) {
+        URL.revokeObjectURL(modelUrlRef.current);
+        modelUrlRef.current = null;
+      }
+
+      // чистим текстуру фона
+      if (backgroundTextureRef.current) {
+        backgroundTextureRef.current.dispose();
+        backgroundTextureRef.current = null;
+      }
+
+      // Аккуратная очистка геометрий/материалов модели
+      if (modelRef.current) {
+        modelRef.current.traverse((child: THREE.Object3D) => {
+          const mesh = child as THREE.Mesh;
+          if ((mesh as any).isMesh) {
+            mesh.geometry?.dispose?.();
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m) => (m as any)?.dispose?.());
+            } else {
+              (mesh.material as any)?.dispose?.();
+            }
+          }
+        });
+      }
+
+      if (rendererRef.current) {
+        // убрать canvas из DOM до dispose
+        if (rendererRef.current.domElement.parentElement === currentMount) {
+          currentMount.removeChild(rendererRef.current.domElement);
+        }
+        rendererRef.current.dispose();
+        rendererRef.current = null;
+      }
+
+      // сброс фона
+      if (sceneRef.current) {
+        sceneRef.current.background = null;
+        // чистим сцену
+        sceneRef.current.clear();
+      }
+
+      document.body.style.overflow = prevOverflow;
+      sceneRef.current = null;
+      cameraRef.current = null;
+    };
+    // ВАЖНО: завязка на saunaDims — пересобираем three.js только когда знаем точные размеры
+  }, [modelFile, onCancel, handleConfirm, saunaImageUrl, saunaDims]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col p-4 bg-black/80 backdrop-blur-sm isolation-isolate">
+      <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
+        <p className="text-slate-200 text-sm">Настройте ракурс для 2D-снимка модели</p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded bg-slate-808 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
+          >
+            Отмена (Esc)
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
+          >
+            Сделать снимок (Enter)
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 relative flex items-center justify-center">
+        {/* Сюда three.js вмонтирует свой canvas */}
+        <div ref={mountRef} className="w-full h-full rounded-md border border-gray-700" />
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+```
+
+---
+
 ## Файл: `src/components/sidebar/ActionButtons.tsx`
 
 ```typescript
@@ -2466,31 +2856,36 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         onDrop={onDrop}
         onDragOver={(e) => e.preventDefault()}
         className={cx(
-          "group border border-dashed rounded-lg p-4 text-center cursor-pointer transition",
-          "border-gray-700 hover:border-cyan-500 bg-gray-900/50"
+          "group border border-dashed rounded-lg cursor-pointer transition",
+          "border-gray-700 hover:border-cyan-500 bg-gray-900/50",
+          "flex items-center justify-center min-h-[92px]" // Внешний контейнер теперь flex-контейнер
         )}
         title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
       >
-        {sourceFile ? (
-          <div className="text-left space-y-1">
-            <p className="text-cyan-400 text-sm font-medium truncate">
-              {sourceFile.name}
-            </p>
-            <p className="text-xs text-gray-500">
-              {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
-              {sourceFile.type.replace("image/", "").toUpperCase()}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <p className="text-sm text-gray-400">
-              Перетащи или нажми, чтобы выбрать
-            </p>
-            <p className="text-xs text-gray-500">
-              {ACCEPTED_FILE_TYPES.map(t => t.replace('image/', '')).join(', ').toUpperCase()} • до {MAX_FILE_SIZE_MB}MB • Ctrl+V
-            </p>
-          </div>
-        )}
+        {/* А весь контент живет в отдельном блоке, который уже не влияет на рамку */}
+        {/* <<< FIX: Добавлен min-w-0, чтобы truncate работал во flex-контейнере */}
+        <div className="p-2 text-center min-w-0">
+          {sourceFile ? (
+            <div className="text-left space-y-1">
+              <p className="text-cyan-400 text-sm font-medium truncate">
+                {sourceFile.name}
+              </p>
+              <p className="text-xs text-gray-500">
+                {(sourceFile.size / 1024 / 1024).toFixed(2)} MB •{" "}
+                {sourceFile.type.replace("image/", "").toUpperCase()}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-sm text-gray-400">
+                Перетащи или нажми, чтобы выбрать
+              </p>
+              <p className="text-xs text-gray-500">
+                {ACCEPTED_FILE_TYPES.map(t => t.replace('image/', '')).join(', ').toUpperCase()} • до {MAX_FILE_SIZE_MB}MB • Ctrl+V
+              </p>
+            </div>
+          )}
+        </div>
         <input
           id="image-upload"
           type="file"
@@ -3256,6 +3651,173 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
 
 ---
 
+## Файл: `src/components/sidebar/ObjectInjector3D.tsx`
+
+```typescript
+// src/components/sidebar/ObjectInjector3D.tsx
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import { Label } from '../ui/FormControls';
+import { PhotoboothModal } from '../editor/PhotoboothModal';
+import Image from 'next/image';
+
+interface ObjectInjector3DProps {
+  saunaImageUrl: string | null;
+  onGenerate: (targetMapFile: File, referenceObjectFile: File, helperPrompt: string) => void;
+}
+
+export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUrl, onGenerate }) => {
+  const [modelFile, setModelFile] = useState<File | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [targetMapFile, setTargetMapFile] = useState<File | null>(null);
+  const [referenceObjectFile, setReferenceObjectFile] = useState<File | null>(null);
+  const [helperPrompt, setHelperPrompt] = useState(''); // <<< Стейт для промпта
+
+  const [targetMapPreviewUrl, setTargetMapPreviewUrl] = useState<string | null>(null);
+  const [referenceObjectPreviewUrl, setReferenceObjectPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (targetMapFile) {
+      const url = URL.createObjectURL(targetMapFile);
+      setTargetMapPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setTargetMapPreviewUrl(null);
+  }, [targetMapFile]);
+
+  useEffect(() => {
+    if (referenceObjectFile) {
+      const url = URL.createObjectURL(referenceObjectFile);
+      setReferenceObjectPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setReferenceObjectPreviewUrl(null);
+  }, [referenceObjectFile]);
+
+  useEffect(() => {
+    if (modelFile) {
+      setIsModalOpen(true);
+      setTargetMapFile(null);
+      setReferenceObjectFile(null);
+    }
+  }, [modelFile]);
+  
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const fileName = file?.name.toLowerCase() || '';
+    // <<< Гибкая проверка
+    if (file && (fileName.endsWith('.glb') || fileName.endsWith('.gltf') || fileName.endsWith('.obj'))) {
+      setModelFile(file);
+    } else if (file) {
+      alert('Неверный формат файла. Поддерживаются .glb, .gltf, .obj');
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleButtonClick = () => fileInputRef.current?.click();
+
+  const handleModalConfirm = (targetMapBlob: Blob, referenceObjectBlob: Blob) => {
+    setTargetMapFile(new File([targetMapBlob], "target_map.png", { type: 'image/png' }));
+    setReferenceObjectFile(new File([referenceObjectBlob], "reference_object.png", { type: 'image/png' }));
+    setIsModalOpen(false);
+  };
+
+  const handleModalCancel = () => {
+    setIsModalOpen(false);
+    setModelFile(null);
+  };
+
+  const handleClearResults = () => {
+    setTargetMapFile(null);
+    setReferenceObjectFile(null);
+  };
+
+  const handleSubmit = () => {
+    if (!targetMapFile || !referenceObjectFile) return;
+    onGenerate(targetMapFile, referenceObjectFile, helperPrompt);
+  };
+
+  return (
+    <>
+      <div className="space-y-4 pt-3">
+        {/* Блок загрузки модели */}
+        <div className="space-y-2">
+          {/* <<< ИСПРАВЛЕНО: Убрали "Шаг 1", обновили форматы */}
+          <Label title="3D Модель (.glb, .gltf, .obj)" />
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".glb,.gltf,.obj" // <<< Убедимся, что accept тоже верный
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={handleButtonClick}
+            // <<< ИСПРАВЛЕНО: Добавили flex-классы для контроля над переполнением
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition flex justify-center items-center min-w-0"
+          >
+            {/* <<< ИСПРАВЛЕНО: Обернули текст в span с truncate */}
+            <span className="truncate">
+              {modelFile ? `Заменить: ${modelFile.name}` : '+ Выбрать 3D модель'}
+            </span>
+          </button>
+        </div>
+
+        {/* Блок с превью для AI */}
+        {(targetMapPreviewUrl && referenceObjectPreviewUrl) && (
+          <div className="space-y-3">
+            {/* <<< ИСПРАВЛЕНО: Убрали "Шаг 2" */}
+            <Label title="Превью для AI" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="relative h-24 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+                <Image src={targetMapPreviewUrl} alt="Target map" fill sizes="150px" className="object-contain" />
+              </div>
+              <div className="relative h-24 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
+                <Image src={referenceObjectPreviewUrl} alt="Reference object" fill sizes="150px" className="object-contain" />
+              </div>
+            </div>
+            <button onClick={handleClearResults} className="w-full text-center text-xs text-red-400 hover:text-red-300">Очистить</button>
+          </div>
+        )}
+        
+        {/* Блок уточнений и отправки */}
+        <div className="space-y-3">
+          {/* <<< ИСПРАВЛЕНО: Убрали "Шаг 3", сделали заголовок по твоей идее */}
+          <Label title="Уточнение (опционально)" />
+          <textarea
+            rows={2}
+            maxLength={180}
+            value={helperPrompt}
+            onChange={(e) => setHelperPrompt(e.target.value)}
+            className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500"
+            placeholder="Например, сделай объект более блестящим"
+          />
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!targetMapFile || !referenceObjectFile}
+            className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-600 transition disabled:bg-gray-800 disabled:text-gray-500 hover:bg-cyan-500"
+          >
+            Интегрировать объект
+          </button>
+        </div>
+      </div>
+
+      {isModalOpen && modelFile && (
+        <PhotoboothModal
+          modelFile={modelFile} onConfirm={handleModalConfirm} onCancel={handleModalCancel} saunaImageUrl={saunaImageUrl}
+        />
+      )}
+    </>
+  );
+};
+
+```
+
+---
+
 ## Файл: `src/components/sidebar/PromptEngineer.tsx`
 
 ```typescript
@@ -3447,6 +4009,7 @@ import { TextureTransplanter } from './TextureTransplanter';
 import { BackgroundReplacer } from './BackgroundReplacer';
 import { StyleTransplanter } from './StyleTransplanter';
 import { ObjectInjector } from './ObjectInjector';
+import { ObjectInjector3D } from './ObjectInjector3D'; // <<< 1. ИМПОРТИРУЕМ НОВЫЙ КОМПОНЕНТ
 
 import { MultiArrowEditor } from '../editor/MultiArrowEditor';
 import { Label } from '../ui/FormControls';
@@ -3488,6 +4051,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
   const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
   const [isArrowSectionOpen, setIsArrowSectionOpen] = useState(false); // <<< новый стейт секции
+  const [isObjectInjector3DOpen, setIsObjectInjector3DOpen] = useState(false); // <<< 2. ДОБАВЛЯЕМ СТЕЙТ ДЛЯ НОВОЙ ВКЛАДКИ
 
   const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
   const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
@@ -3586,9 +4150,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateBackgroundReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
-                  helperPrompt={props.helperPrompts.background}
-                  onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
-
+                helperPrompt={props.helperPrompts.background}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
               />
             </div>
           )}
@@ -3639,14 +4202,14 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Внедрение Объекта */}
+        {/* Внедрение Объекта (2D) */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
             onClick={() => setIsObjectInjectorOpen((v) => !v)}
             className="w-full text-left text-sm font-medium text-cyan-400 p-3"
           >
-            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта
+            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта (2D)
           </button>
           {isObjectInjectorOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -3662,7 +4225,26 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Редактор по Стрелкам — теперь сворачиваемая секция */}
+        {/* <<< 3. НОВАЯ СЕКЦИЯ-АККОРДЕОН ДЛЯ 3D */}
+        <div className="bg-gray-900/50 border border-purple-800/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsObjectInjector3DOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-purple-400 p-3"
+          >
+            {isObjectInjector3DOpen ? '▼' : '►'} Интеграция Объекта (3D)
+          </button>
+          {isObjectInjector3DOpen && (
+            <div className="p-3 border-t border-purple-800/50">
+            <ObjectInjector3D
+              saunaImageUrl={props.activeNode?.imageUrl ?? null}
+              onGenerate={props.onGenerateObjectInjection3D}
+            />
+          </div>
+          )}
+        </div>
+
+        {/* Редактор по Стрелкам — сворачиваемая секция */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -4883,6 +5465,7 @@ export interface SidebarProps {
     texture: string;
     object: string;
   };
+  onGenerateObjectInjection3D: (targetMapFile: File, referenceObjectFile: File) => void;
   setHelperPrompts: React.Dispatch<React.SetStateAction<{
     background: string;
     style: string;
@@ -5339,6 +5922,64 @@ export function useImageWorkspace() {
     }
   };
 
+  const onGenerateObjectInjection3D = async (
+    targetMapFile: File,
+    referenceObjectFile: File,
+    helperPrompt: string
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    
+    const model = 'gemini';
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    let prompt = `Place the object from the reference image into the solid red area on the main image. For a seamless integration, you MUST adapt the object to the scene by perfectly matching its lighting, shadows, and PERSPECTIVE. You are permitted to slightly alter the object's original angle if it's necessary to achieve photorealism and correct alignment with the scene's geometry. CRITICAL INSTRUCTION: The red area is a placement marker ONLY. It MUST be completely removed and invisible in the final image.`;
+    if (helperPrompt.trim()) {
+      prompt += ` An additional user hint is: "${helperPrompt.trim()}".`;
+    }
+    
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile);
+    formData.append("reference_image", referenceObjectFile);
+    formData.append("prompt", prompt);
+   
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: '', 
+        model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const onGenerateStyleReplacement = async (
     referenceFile: File | null,
     model: 'gemini' | 'seedream'
@@ -5361,20 +6002,23 @@ export function useImageWorkspace() {
     abortControllerRef.current = new AbortController();
 
     let prompt: string;
-    const userClarification = helperPrompts.style.trim();
+      const userClarification = helperPrompts.style.trim();
 
-    if (referenceFile) {
-        const basePrompt = `Redraw the **source image** to match the artistic style of the **reference image**.
-      **CRITICAL:**
-      1. Preserve the exact geometry, object placement, and composition of the **source image**.
-      2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
-      3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
-        prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
-    } else if (userClarification) {
-        prompt = `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
-    } else {
-        return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
-    }
+      if (referenceFile) {
+          // Твой промт, но в виде четкого приказа
+          const basePrompt = `Redraw the source image (image 1), adhering to two strict rules:
+1.  **PRESERVE:** You must preserve ONLY the geometry and composition of the source image.
+2.  **TRANSFER:** You must transfer the style from the reference image (image 2) down to the smallest detail, including its exact color palette, lighting scheme, and surface textures.`;
+          prompt = userClarification ? `${basePrompt}\nAdditional user hint: "${userClarification}".` : basePrompt;
+
+      } else if (userClarification) {
+          // Та же логика для текстового описания
+          prompt = `Redraw the source image to perfectly match the following style: "${userClarification}".
+CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. The final result must match the described style down to the smallest detail in terms of color, lighting, and texture.`;
+
+      } else {
+          return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+      }
     // Превращаем URL активной сауны в файл для отправки
     let sourceImageFile: File;
     try {
@@ -5461,13 +6105,13 @@ export function useImageWorkspace() {
         const userClarification = helperPrompts.background.trim();
 
         if (referenceFile) {
-            const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
-            prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
-        } else if (userClarification) {
-            prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
-        } else {
-            return fail("Не указан ни файл-референс, ни текстовое описание фона.");
-        }
+    const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+        prompt = userClarification ? `${basePrompt} User clarification: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+        prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+    } else {
+        return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+    }
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -5980,6 +6624,7 @@ export function useImageWorkspace() {
     deleteBaseResult,
     helperPrompts,
     setHelperPrompts,
+    onGenerateObjectInjection3D,
     deleteWorkspace,
   };
 }

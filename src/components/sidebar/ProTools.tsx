@@ -7,6 +7,7 @@ import { TextureTransplanter } from './TextureTransplanter';
 import { BackgroundReplacer } from './BackgroundReplacer';
 import { StyleTransplanter } from './StyleTransplanter';
 import { ObjectInjector } from './ObjectInjector';
+import { ObjectInjector3D } from './ObjectInjector3D'; // <<< 1. ИМПОРТИРУЕМ НОВЫЙ КОМПОНЕНТ
 
 import { MultiArrowEditor } from '../editor/MultiArrowEditor';
 import { Label } from '../ui/FormControls';
@@ -48,6 +49,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
   const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
   const [isArrowSectionOpen, setIsArrowSectionOpen] = useState(false); // <<< новый стейт секции
+  const [isObjectInjector3DOpen, setIsObjectInjector3DOpen] = useState(false); // <<< 2. ДОБАВЛЯЕМ СТЕЙТ ДЛЯ НОВОЙ ВКЛАДКИ
 
   const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
   const [arrowEditorModel, setArrowEditorModel] = useState<'gemini' | 'seedream'>('seedream');
@@ -146,9 +148,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                 onGenerate={props.onGenerateBackgroundReplacement}
                 isLoading={props.isLoading}
                 sourceAspectRatio={props.sourceAspectRatio}
-                  helperPrompt={props.helperPrompts.background}
-                  onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
-
+                helperPrompt={props.helperPrompts.background}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
               />
             </div>
           )}
@@ -199,14 +200,14 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Внедрение Объекта */}
+        {/* Внедрение Объекта (2D) */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
             onClick={() => setIsObjectInjectorOpen((v) => !v)}
             className="w-full text-left text-sm font-medium text-cyan-400 p-3"
           >
-            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта
+            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта (2D)
           </button>
           {isObjectInjectorOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -222,7 +223,26 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Редактор по Стрелкам — теперь сворачиваемая секция */}
+        {/* <<< 3. НОВАЯ СЕКЦИЯ-АККОРДЕОН ДЛЯ 3D */}
+        <div className="bg-gray-900/50 border border-purple-800/50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setIsObjectInjector3DOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-purple-400 p-3"
+          >
+            {isObjectInjector3DOpen ? '▼' : '►'} Интеграция Объекта (3D)
+          </button>
+          {isObjectInjector3DOpen && (
+            <div className="p-3 border-t border-purple-800/50">
+            <ObjectInjector3D
+              saunaImageUrl={props.activeNode?.imageUrl ?? null}
+              onGenerate={props.onGenerateObjectInjection3D}
+            />
+          </div>
+          )}
+        </div>
+
+        {/* Редактор по Стрелкам — сворачиваемая секция */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"

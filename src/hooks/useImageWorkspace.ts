@@ -321,6 +321,64 @@ export function useImageWorkspace() {
     }
   };
 
+  const onGenerateObjectInjection3D = async (
+    targetMapFile: File,
+    referenceObjectFile: File,
+    helperPrompt: string
+  ) => {
+    if (!activeNode) return fail("Нет активного узла для доработки.");
+    
+    const model = 'gemini';
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    let prompt = `Place the object from the reference image into the solid red area on the main image. For a seamless integration, you MUST adapt the object to the scene by perfectly matching its lighting, shadows, and PERSPECTIVE. You are permitted to slightly alter the object's original angle if it's necessary to achieve photorealism and correct alignment with the scene's geometry. CRITICAL INSTRUCTION: The red area is a placement marker ONLY. It MUST be completely removed and invisible in the final image.`;
+    if (helperPrompt.trim()) {
+      prompt += ` An additional user hint is: "${helperPrompt.trim()}".`;
+    }
+    
+    settingsManager.updateSeedForGeneration();
+    const settings = settingsManager.getCurrentSettings(model);
+
+    const formData = new FormData();
+    formData.append("image", targetMapFile);
+    formData.append("reference_image", referenceObjectFile);
+    formData.append("prompt", prompt);
+   
+    formData.append("model", model);
+    formData.append("settings", JSON.stringify(settings));
+
+    try {
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: '', 
+        model,
+        settings,
+      };
+
+      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      setWorkspaces((prev) => ({
+        ...prev,
+        [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
+      }));
+      setActiveNodeId(newNode.id);
+    } catch (e) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Генерация отменена.");
+        else setError(e.message);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const onGenerateStyleReplacement = async (
     referenceFile: File | null,
     model: 'gemini' | 'seedream'
@@ -965,6 +1023,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     deleteBaseResult,
     helperPrompts,
     setHelperPrompts,
+    onGenerateObjectInjection3D,
     deleteWorkspace,
   };
 }

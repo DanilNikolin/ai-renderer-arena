@@ -44,7 +44,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         title="Перетащи файл или кликни. Можно также вставить из буфера Ctrl+V."
       >
         {/* А весь контент живет в отдельном блоке, который уже не влияет на рамку */}
-        <div className="p-2 text-center">
+        {/* <<< FIX: Добавлен min-w-0, чтобы truncate работал во flex-контейнере */}
+        <div className="p-2 text-center min-w-0">
           {sourceFile ? (
             <div className="text-left space-y-1">
               <p className="text-cyan-400 text-sm font-medium truncate">
