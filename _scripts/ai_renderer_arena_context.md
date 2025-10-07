@@ -2014,12 +2014,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 interface PhotoboothModalProps {
   modelFile: File;
-  onConfirm: (targetMapBlob: Blob, referenceObjectBlob: Blob) => void; // Возвращает ДВА blob'а
+  onConfirm: (targetMapBlob: Blob, referenceObjectBlob: Blob) => void; // два blob'а
   onCancel: () => void;
   saunaImageUrl?: string | null;
 }
 
-// Хелпер, чтобы превратить callback-ад в современный Promise
+// helper — Canvas → Blob
 const getCanvasBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
@@ -2043,107 +2043,87 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
   const rafRef = useRef<number | null>(null);
   const modelUrlRef = useRef<string | null>(null);
 
-  // Храним загруженную текстуру фона, чтобы корректно dispose() в cleanup
   const backgroundTextureRef = useRef<THREE.Texture | null>(null);
 
-  // Реф на саму модель (для временной подмены материалов)
+  // Сырый объект модели (оригинальная сцена/группа из загрузчика)
   const modelRef = useRef<THREE.Group | null>(null);
+  // Пивот — отдельная группа, центрированная по bbox модели; вращаем ИМЕННО pivot
+  const pivotRef = useRef<THREE.Group | null>(null);
 
-  // === ШАГ 1: Стейт для хранения точных размеров исходного фона ===
+  // Размеры фоновой фотки
   const [saunaDims, setSaunaDims] = useState<{ w: number; h: number } | null>(null);
 
-  // === ШАГ 2: Сначала грузим картинку и узнаём её реальные размеры ===
+  // Узнаём точные размеры фонового изображения
   useEffect(() => {
-    // Если URL нет — выставим дефолт (можно рендерить без фона)
     if (!saunaImageUrl) {
       setSaunaDims({ w: 1024, h: 1024 });
       return;
     }
-
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      setSaunaDims({ w: img.naturalWidth, h: img.naturalHeight });
-    };
+    img.onload = () => setSaunaDims({ w: img.naturalWidth, h: img.naturalHeight });
     img.onerror = () => {
-      console.error('Не удалось загрузить фоновое изображение для определения размеров.');
-      setSaunaDims({ w: 1024, h: 1024 }); // Фоллбэк на случай ошибки
+      console.error('Не удалось загрузить фоновое изображение.');
+      setSaunaDims({ w: 1024, h: 1024 });
     };
     img.src = saunaImageUrl;
   }, [saunaImageUrl]);
 
+  // Снимок двух кадров: 1) target map (фон+красный клон), 2) reference (белый фон, АВТОЗУМ УБРАН)
   const handleConfirm = useCallback(async () => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const camera = cameraRef.current;
-    const model = modelRef.current;
     const controls = controlsRef.current;
-    if (!renderer || !scene || !camera || !model || !controls) return;
+    const pivot = pivotRef.current;
 
-    // --- Снимок #1: Карта цели (фон + красный клон) ---
+    if (!renderer || !scene || !camera || !controls || !pivot) return;
+
+    // --- Снимок #1: Карта цели (фон + красный силуэт) ---
+    // Этот блок работает правильно и остается без изменений.
     const redMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const modelClone = model.clone();
-    modelClone.traverse((node: THREE.Object3D) => {
-      if ((node as any).isMesh) {
+    const pivotClone = pivot.clone(true);
+    pivotClone.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh) {
         (node as THREE.Mesh).material = redMaterial;
       }
     });
 
-    model.visible = false;
-    scene.add(modelClone);
+    const prevVisible = pivot.visible;
+    pivot.visible = false;
+    scene.add(pivotClone);
 
     renderer.render(scene, camera);
     const targetMapBlob = await getCanvasBlob(renderer.domElement);
 
-    scene.remove(modelClone);
-    model.visible = true;
+    scene.remove(pivotClone);
+    pivot.visible = prevVisible;
     redMaterial.dispose();
 
-    // --- Снимок #2: Референс (крупный план с сохранением ракурса) ---
+
+    // --- Снимок #2: Референс (просто меняем фон на белый) ---
     const originalBackground = scene.background;
-
-    // Сохраняем состояние камеры и контролов
-    const originalCamPos = camera.position.clone();
-    const originalTarget = controls.target.clone();
-
+    
     // Временно ставим белый фон
     scene.background = new THREE.Color(0xffffff);
     renderer.setClearAlpha(1.0);
 
-    // Вычисляем зум, сохраняем угол обзора
-    const box = new THREE.Box3().setFromObject(model);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-
-    // 1) Идеальная дистанция до объекта
-    const distance = (size.length() * 0.5) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2));
-
-    // 2) Вектор направления от текущей позиции камеры к её цели
-    const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-
-    // 3) Новая позиция камеры: центр объекта + вектор * дистанция
-    camera.position.copy(center).add(direction.multiplyScalar(distance));
-
-    // 4) Смотрим на центр объекта
-    controls.target.copy(center);
-    controls.update();
-
+    // <<< ГЛАВНЫЙ ФИКС: МЫ БОЛЬШЕ НЕ ДВИГАЕМ КАМЕРУ!
+    // Весь блок с 'Box3', 'center', 'distance', 'direction' и 'camera.position.copy' — УДАЛЕН.
+    // Мы просто рендерим сцену еще раз с тем же ракурсом, но с другим фоном.
+    
     renderer.render(scene, camera);
     const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
 
-    // Восстанавливаем камеру и фон
-    scene.background = originalBackground;
-    camera.position.copy(originalCamPos);
-    controls.target.copy(originalTarget);
-    controls.update();
+    // Возвращаем оригинальный фон
+    scene.background = originalBackground as any;
+    
+    // Восстанавливать позицию камеры не нужно, т.к. мы ее не меняли.
 
     onConfirm(targetMapBlob, referenceObjectBlob);
   }, [onConfirm]);
 
   useEffect(() => {
-    console.log('[PhotoboothModal] Получен URL подложки:', saunaImageUrl);
-
-    // Ждём, пока не узнаем точные размеры
     if (!saunaDims) return;
 
     const prevOverflow = document.body.style.overflow;
@@ -2152,71 +2132,54 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     if (!mountRef.current) return;
     const currentMount = mountRef.current;
 
-    // === ИНИЦИАЛИЗАЦИЯ THREE.JS ===
-    // 1) Сцена
+    // === Инициализация Three.js ===
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // 2) Рендерер
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: true, // оставим прозрачность на всякий случай
-      preserveDrawingBuffer: true, // нужно для toBlob()/toDataURL
+      alpha: true,
+      preserveDrawingBuffer: true,
     });
+    rendererRef.current = renderer;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
 
-    // ВАЖНО: Фиксируем разрешение жёстко под размеры исходной картинки.
-    renderer.setPixelRatio(1); // без умножения на DPR — нам нужна 1:1 карта
+    // Фиксируем физический размер под размер фоновой фотки
+    renderer.setPixelRatio(1);
     renderer.setSize(saunaDims.w, saunaDims.h);
-
-    // Чтобы канвас красиво вписывался в контейнер без искажений:
     renderer.domElement.style.cssText = 'width: 100%; height: 100%; object-fit: contain;';
-
-    // фон будем рисовать через scene.background => пусть канвас очищается непрозрачно
     renderer.setClearAlpha(1.0);
     currentMount.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
 
-    // 3) Камера — соотношение строго по исходнику
-    const camera = new THREE.PerspectiveCamera(
-      50,
-      saunaDims.w / saunaDims.h,
-      0.01,
-      5000
-    );
-    camera.position.set(0, 0, 5);
+    const camera = new THREE.PerspectiveCamera(50, saunaDims.w / saunaDims.h, 0.01, 5000);
     cameraRef.current = camera;
+    camera.position.set(0, 0, 5);
 
-    // 4) Свет
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-    scene.add(ambientLight);
+    // Свет
+    scene.add(new THREE.AmbientLight(0xffffff, 1.5));
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    // 5) Контролы
+    // Контролы — только пан/зум
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.target.set(0, 0, 0);
-    controls.update();
     controlsRef.current = controls;
+    controls.enableDamping = true;
+    controls.enableRotate = false; // вращение камеры выключено — крутим сам объект
     controls.enablePan = true;
-    controls.screenSpacePanning = true;
     controls.enableZoom = true;
+    controls.screenSpacePanning = true;
     controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
+      LEFT: THREE.MOUSE.ROTATE, // отключено флагом выше
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.DOLLY,
     };
 
-    // === СТАТИЧНЫЙ ФОН НА ВЕСЬ КАДР (НЕ ДВИГАЕТСЯ И НЕ ЗУМИТСЯ) ===
+    // Статичный фон
     if (saunaImageUrl) {
       const textureLoader = new THREE.TextureLoader();
-      // @ts-ignore
-      textureLoader.setCrossOrigin?.('anonymous');
-
       textureLoader.load(
         saunaImageUrl,
         (tex) => {
@@ -2225,41 +2188,49 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
             return;
           }
           tex.colorSpace = THREE.SRGBColorSpace;
-          tex.generateMipmaps = true;
-          tex.needsUpdate = true;
-
           backgroundTextureRef.current = tex;
-          scene.background = tex; // ключевая строка
+          scene.background = tex;
         },
         undefined,
-        (err) => {
-          console.warn('Не удалось загрузить фон (scene.background):', err);
-        }
+        (err) => console.warn('Не удалось загрузить фон:', err)
       );
     } else {
       scene.background = null;
     }
 
-    // 6) Загрузчик модели
+    // Загрузка модели
     const modelUrl = URL.createObjectURL(modelFile);
     modelUrlRef.current = modelUrl;
 
-    // <<< Общая функция для обработки загруженной модели, чтобы не дублировать код
-    const onModelLoad = (model: THREE.Group) => {
-        modelRef.current = model;
-        scene.add(model);
+    const onModelLoad = (rawModel: THREE.Group) => {
+      modelRef.current = rawModel;
 
-        // Вычисляем габариты и центр (код тот же, что и был)
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const radius = size.length() * 0.5;
-        model.position.sub(center);
-        const fov = THREE.MathUtils.degToRad(camera.fov);
-        const distance = radius / Math.sin(fov / 2);
-        camera.position.set(0, 0, distance * 1.2);
-        controls.target.set(0, 0, 0);
-        controls.update();
+      // Расчёт bbox модели в её текущем состоянии
+      const box = new THREE.Box3().setFromObject(rawModel);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const radius = size.length() * 0.5;
+
+      // Пивот: новая группа в СЦЕНЕ, центр — мировой (0,0,0)
+      const pivot = new THREE.Group();
+      pivotRef.current = pivot;
+      scene.add(pivot);
+
+      // Переносим модель ВНУТРЬ пивота и смещаем так, чтобы центр модели пришёлся в (0,0,0) пивота
+      rawModel.position.sub(center); // теперь origin пивота = центр модели
+      pivot.add(rawModel);
+
+      // Настройка камеры/контролов относительно пивота
+      const fov = THREE.MathUtils.degToRad(camera.fov);
+      const distance = radius / Math.sin(fov / 2);
+
+      // Цель контролов — центр пивота (0,0,0)
+      controls.target.set(0, 0, 0);
+
+      // Ставим камеру на расстояние по Z, глядя на центр
+      camera.position.set(0, 0, distance * 1.2);
+      camera.lookAt(0, 0, 0);
+      controls.update();
     };
 
     const onError = (error: unknown) => {
@@ -2267,7 +2238,6 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
       alert('Не удалось загрузить 3D модель.');
     };
 
-    // <<< Логика выбора загрузчика по расширению файла
     const fileName = modelFile.name.toLowerCase();
     if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
       const loader = new GLTFLoader();
@@ -2279,47 +2249,91 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
       onError(new Error(`Неподдерживаемый формат файла: ${fileName}`));
     }
 
-    // 7) Рендер-цикл
+    // Ручное вращение pivot ЛКМ
+    let isRotating = false;
+    const lastPos = new THREE.Vector2();
+    const ROT_SPEED = 0.01; // чувствительность — при желании подкрути
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !pivotRef.current) return; // только ЛКМ
+      isRotating = true;
+      lastPos.set(e.clientX, e.clientY);
+      // на время вращения — выключаем OrbitControls (хотя rotate там и так off)
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture?.(e.pointerId);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isRotating || !pivotRef.current) return;
+      const dx = e.clientX - lastPos.x;
+      const dy = e.clientY - lastPos.y;
+      lastPos.set(e.clientX, e.clientY);
+
+      // Вращаем ВОКРУГ ЦЕНТРА ПРЕДМЕТА (pivot в (0,0,0), модель смещена внутрь)
+      pivotRef.current.rotation.y += dx * ROT_SPEED; // горизонт — вокруг Y
+      pivotRef.current.rotation.x += dy * ROT_SPEED; // вертикаль — вокруг X
+    };
+
+    const endRotate = (e: PointerEvent) => {
+      if (!isRotating) return;
+      isRotating = false;
+      controls.enabled = true; // возвращаем пан/зум
+      renderer.domElement.releasePointerCapture?.(e.pointerId);
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerup', endRotate);
+    renderer.domElement.addEventListener('pointerleave', endRotate);
+    renderer.domElement.addEventListener('pointercancel', endRotate);
+
+    // Рендер-цикл
     const animate = () => {
       rafRef.current = requestAnimationFrame(animate);
       controls.update();
-      renderer.render(scene, camera); // фон (scene.background) рисуется автоматически
+      renderer.render(scene, camera);
     };
     animate();
 
-    // 8) Горячие клавиши
+    // Хоткеи
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
       if (e.key === 'Enter') handleConfirm();
     };
     window.addEventListener('keydown', onKey);
 
-    // 9) Очистка
+    // Очистка
     return () => {
       window.removeEventListener('keydown', onKey);
 
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerup', endRotate);
+      renderer.domElement.removeEventListener('pointerleave', endRotate);
+      renderer.domElement.removeEventListener('pointercancel', endRotate);
+
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
 
       if (controlsRef.current) {
         controlsRef.current.dispose();
         controlsRef.current = null;
       }
 
-      // чистим URL модели
       if (modelUrlRef.current) {
         URL.revokeObjectURL(modelUrlRef.current);
         modelUrlRef.current = null;
       }
 
-      // чистим текстуру фона
       if (backgroundTextureRef.current) {
         backgroundTextureRef.current.dispose();
         backgroundTextureRef.current = null;
       }
 
-      // Аккуратная очистка геометрий/материалов модели
       if (modelRef.current) {
-        modelRef.current.traverse((child: THREE.Object3D) => {
+        modelRef.current.traverse((child) => {
           const mesh = child as THREE.Mesh;
           if ((mesh as any).isMesh) {
             mesh.geometry?.dispose?.();
@@ -2330,10 +2344,16 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
             }
           }
         });
+        modelRef.current = null;
+      }
+
+      // Удаляем pivot-группу из сцены (если есть)
+      if (pivotRef.current && sceneRef.current) {
+        sceneRef.current.remove(pivotRef.current);
+        pivotRef.current = null;
       }
 
       if (rendererRef.current) {
-        // убрать canvas из DOM до dispose
         if (rendererRef.current.domElement.parentElement === currentMount) {
           currentMount.removeChild(rendererRef.current.domElement);
         }
@@ -2341,18 +2361,16 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         rendererRef.current = null;
       }
 
-      // сброс фона
       if (sceneRef.current) {
         sceneRef.current.background = null;
-        // чистим сцену
         sceneRef.current.clear();
+        sceneRef.current = null;
       }
 
-      document.body.style.overflow = prevOverflow;
-      sceneRef.current = null;
       cameraRef.current = null;
+
+      document.body.style.overflow = prevOverflow;
     };
-    // ВАЖНО: завязка на saunaDims — пересобираем three.js только когда знаем точные размеры
   }, [modelFile, onCancel, handleConfirm, saunaImageUrl, saunaDims]);
 
   return createPortal(
@@ -2362,7 +2380,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="rounded bg-slate-808 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
+            className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
           >
             Отмена (Esc)
           </button>
@@ -2375,7 +2393,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         </div>
       </div>
       <div className="flex-1 min-h-0 relative flex items-center justify-center">
-        {/* Сюда three.js вмонтирует свой canvas */}
+        {/* сюда three.js вмонтирует canvas */}
         <div ref={mountRef} className="w-full h-full rounded-md border border-gray-700" />
       </div>
     </div>,
