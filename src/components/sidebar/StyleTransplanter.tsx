@@ -12,6 +12,7 @@ interface StyleTransplanterProps {
   onGenerate: (referenceFile: File | null, model: ModelForStyle) => void;
   isLoading: boolean;
   sourceAspectRatio: number; // ОБЯЗАТЕЛЬНО для блокировки кроппера
+  hideModelSelector?: boolean;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
 }
@@ -20,6 +21,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  hideModelSelector = false,
   helperPrompt,
   onHelperPromptChange,
 }) => {
@@ -31,7 +33,6 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   // Управляет открытием/закрытием кроппера и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileIsPresent = !!referenceFile;
   const textIsPresent = helperPrompt.trim().length > 0;
 
   const isReady = (referenceFile || helperPrompt.trim()) && !isLoading;
@@ -127,28 +128,31 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
         </div>
 
         {/* Блок выбора модели */}
-        <div>
-          <Label title="Модель" />
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-            {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
-              <button
-                key={model}
-                onClick={() => setSelectedModel(model)}
-                className={cx(
-                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
-                  selectedModel === model
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800'
-                )}
-              >
-                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {!hideModelSelector && (
+          <div>
+            <Label title="Модель" />
+            <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+              {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
+                <button
+                  key={model}
+                  onClick={() => setSelectedModel(model)}
+                  className={cx(
+                    "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                    selectedModel === model
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-800'
+                  )}
+                >
+                  {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                </button>
+              ))}
+            </div>
+           </div>
 
-        <div>
-            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
+        )}
+ 
+         <div>
+             <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
             <div className="relative">
                 <textarea
                     rows={3}

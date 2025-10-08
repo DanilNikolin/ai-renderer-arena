@@ -20,9 +20,13 @@ ai-renderer-arena
 │   │   │       └── route.ts
 │   │   ├── globals.css
 │   │   ├── layout.tsx
-│   │   └── page.tsx
+│   │   ├── page.tsx
+│   │   └── user
+│   │       ├── layout.tsx
+│   │       └── page.tsx
 │   ├── components
 │   │   ├── ImageWorkspace.tsx
+│   │   ├── UserImageWorkspace.tsx
 │   │   ├── cropper
 │   │   │   └── UniversalCropper.tsx
 │   │   ├── editor
@@ -45,7 +49,10 @@ ai-renderer-arena
 │   │   │   ├── ProTools.tsx
 │   │   │   ├── PromptEngineer.tsx
 │   │   │   ├── StyleTransplanter.tsx
-│   │   │   └── TextureTransplanter.tsx
+│   │   │   ├── TextureTransplanter.tsx
+│   │   │   ├── UserInstructionEditor.tsx
+│   │   │   ├── UserProTools.tsx
+│   │   │   └── UserSidebar.tsx
 │   │   ├── ui
 │   │   │   └── FormControls.tsx
 │   │   └── workspace
@@ -55,7 +62,8 @@ ai-renderer-arena
 │   ├── hooks
 │   │   ├── useFileHandler.ts
 │   │   ├── useImageWorkspace.ts
-│   │   └── useSettingsManager.ts
+│   │   ├── useSettingsManager.ts
+│   │   └── useUserImageWorkspace.ts
 │   └── lib
 │       ├── api.ts
 │       ├── constants.ts
@@ -831,6 +839,64 @@ export async function POST(req: Request) {
 
 ---
 
+## Файл: `src/app/user/layout.tsx`
+
+```typescript
+// src/app/user/layout.tsx
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "../globals.css"; // Стили глобальные, нам это подходит
+
+const inter = Inter({ subsets: ["latin", "cyrillic"] });
+
+export const metadata: Metadata = {
+  title: "Sauna Constructor Visualizer",
+  description: "Photorealistic Sauna Visualization",
+};
+
+export default function UserLayout({ children }: { children: React.ReactNode }) {
+  // Максимально пустой layout, чтобы ничего не мешало при встраивании
+  return (
+    <html lang="ru">
+      <body className={inter.className}>{children}</body>
+    </html>
+  );
+}
+```
+
+---
+
+## Файл: `src/app/user/page.tsx`
+
+```typescript
+// src/app/user/page.tsx
+import UserImageWorkspace from "@/components/UserImageWorkspace";
+
+export default function UserHomePage() {
+  // Тут будет своя обертка и своя версия ImageWorkspace,
+  // но для начала убедимся, что роут работает.
+  return (
+    <main>
+      <div className="container-narrow">
+        <header className="mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400 text-glow">Визуализатор Саун</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            AI-рендер для Sauna Constructor 3D
+          </p>
+        </header>
+        
+        {/* ВАЖНО: Мы временно вставили сюда старый ImageWorkspace.
+            На следующих шагах мы создадим его user-friendly копию 
+            и заменим этот импорт. */}
+        <UserImageWorkspace /> 
+      </div>
+    </main>
+  );
+}
+```
+
+---
+
 ## Файл: `src/components/ImageWorkspace.tsx`
 
 ```typescript
@@ -870,6 +936,42 @@ export default function ImageWorkspace() {
     >
       {/* Передаем и весь стейт, и нашу новую вычисленную константу */}
       <Sidebar {...workspaceState} sourceAspectRatio={sourceAspectRatio} />
+
+      <Canvas {...workspaceState} />
+    </div>
+  );
+}
+```
+
+---
+
+## Файл: `src/components/UserImageWorkspace.tsx`
+
+```typescript
+// src/components/UserImageWorkspace.tsx
+"use client";
+
+import React from "react";
+import { useUserImageWorkspace } from "@/hooks/useUserImageWorkspace";
+import { UserSidebar } from "./sidebar/UserSidebar"; // <<< НАШ НОВЫЙ САЙДБАР
+import { Canvas } from "./workspace/Canvas";
+
+export default function UserImageWorkspace() {
+  const workspaceState = useUserImageWorkspace();
+
+  // Логика пропорций остается, она полезна
+  const aspectRatio = workspaceState.imageInfo
+    ? workspaceState.imageInfo.w / workspaceState.imageInfo.h
+    : 16 / 9;
+
+  return (
+    <div
+      className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 focus:outline-none"
+      onKeyDown={workspaceState.onKeyDown}
+      tabIndex={-1}
+    >
+      {/* Используем UserSidebar вместо старого Sidebar */}
+      <UserSidebar {...workspaceState} sourceAspectRatio={aspectRatio} />
 
       <Canvas {...workspaceState} />
     </div>
@@ -2069,7 +2171,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     img.src = saunaImageUrl;
   }, [saunaImageUrl]);
 
-  // Снимок двух кадров: 1) target map (фон+красный клон), 2) reference (белый фон, АВТОЗУМ УБРАН)
+  // Снимок двух кадров: 1) target map (фон+красный клон), 2) reference (белый фон, автозум)
   const handleConfirm = useCallback(async () => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
@@ -2079,16 +2181,18 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
 
     if (!renderer || !scene || !camera || !controls || !pivot) return;
 
-    // --- Снимок #1: Карта цели (фон + красный силуэт) ---
-    // Этот блок работает правильно и остается без изменений.
+    // --- Снимок #1: Карта цели (фон + красный клон pivot)
     const redMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     const pivotClone = pivot.clone(true);
+
+    // Важно: нужно покрасить ВСЕ меши внутри клона
     pivotClone.traverse((node) => {
-      if ((node as THREE.Mesh).isMesh) {
-        (node as THREE.Mesh).material = redMaterial;
+      if (node instanceof THREE.Mesh) {
+        node.material = redMaterial;
       }
     });
 
+    // Скрываем оригинал, добавляем клон
     const prevVisible = pivot.visible;
     pivot.visible = false;
     scene.add(pivotClone);
@@ -2096,29 +2200,41 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     renderer.render(scene, camera);
     const targetMapBlob = await getCanvasBlob(renderer.domElement);
 
+    // Убираем клон, возвращаем видимость
     scene.remove(pivotClone);
     pivot.visible = prevVisible;
     redMaterial.dispose();
 
-
-    // --- Снимок #2: Референс (просто меняем фон на белый) ---
+    // --- Снимок #2: Референс с белым фоном (автозум на объект)
     const originalBackground = scene.background;
-    
-    // Временно ставим белый фон
+
+    // Сохраняем состояние камеры и контролов
+    const originalCamPos = camera.position.clone();
+    const originalTarget = controls.target.clone();
+
+    // Белый фон
     scene.background = new THREE.Color(0xffffff);
     renderer.setClearAlpha(1.0);
 
-    // <<< ГЛАВНЫЙ ФИКС: МЫ БОЛЬШЕ НЕ ДВИГАЕМ КАМЕРУ!
-    // Весь блок с 'Box3', 'center', 'distance', 'direction' и 'camera.position.copy' — УДАЛЕН.
-    // Мы просто рендерим сцену еще раз с тем же ракурсом, но с другим фоном.
-    
+    // Автозум по bbox pivot'а
+    const box = new THREE.Box3().setFromObject(pivot);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const distance = (size.length() * 0.5) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2));
+    const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+
+    camera.position.copy(center).add(direction.multiplyScalar(distance));
+    controls.target.copy(center);
+    controls.update();
+
     renderer.render(scene, camera);
     const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
 
-    // Возвращаем оригинальный фон
-    scene.background = originalBackground as any;
-    
-    // Восстанавливать позицию камеры не нужно, т.к. мы ее не меняли.
+    // Восстанавливаем всё назад
+    scene.background = originalBackground;
+    camera.position.copy(originalCamPos);
+    controls.target.copy(originalTarget);
+    controls.update();
 
     onConfirm(targetMapBlob, referenceObjectBlob);
   }, [onConfirm]);
@@ -2334,13 +2450,12 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
 
       if (modelRef.current) {
         modelRef.current.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if ((mesh as any).isMesh) {
-            mesh.geometry?.dispose?.();
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((m) => (m as any)?.dispose?.());
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose?.();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
             } else {
-              (mesh.material as any)?.dispose?.();
+              child.material.dispose();
             }
           }
         });
@@ -2505,6 +2620,7 @@ interface BackgroundReplacerProps {
   isLoading: boolean;
   // ВАЖНО: Нам нужно знать пропорции исходной сауны, чтобы заблокировать кроппер
   sourceAspectRatio: number;
+  hideModelSelector?: boolean;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
 }
@@ -2513,6 +2629,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  hideModelSelector = false,
   helperPrompt,
   onHelperPromptChange,
 }) => {
@@ -2526,7 +2643,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
   // Этот стейт открывает/закрывает кроппер и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
 
-  const fileIsPresent = !!referenceFile;
+  
   const textIsPresent = helperPrompt.trim().length > 0;
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2646,25 +2763,29 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
             </div>
 
         {/* Блок выбора модели */}
-        <div>
-          <Label title="Модель" />
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-            {(['gemini', 'seedream'] as ModelForBg[]).map(model => (
-              <button
-                key={model}
-                onClick={() => setSelectedModel(model)}
-                className={cx(
-                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
-                  selectedModel === model
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800'
-                )}
-              >
-                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {!hideModelSelector && (
+          <div>
+            <Label title="Модель" />
+            <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+              {(['gemini', 'seedream'] as ModelForBg[]).map(model => (
+                <button
+                  key={model}
+                  onClick={() => setSelectedModel(model)}
+                  className={cx(
+                    "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                    selectedModel === model
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-800'
+                  )}
+                >
+                  {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                </button>
+              ))}
+            </div>
+           </div>
+       
+        )}
+        
 
         {/* Блок выбора целей */}
         <div>
@@ -3447,6 +3568,7 @@ interface ObjectInjectorProps {
   onGenerate: (targetMapFile: File, objectFile: File, model: 'gemini' | 'seedream') => void;
   isLoading: boolean;
   activeImageUrl: string | null;
+  hideModelSelector?: boolean;
   sourceAspectRatio: number;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
@@ -3456,6 +3578,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
   onGenerate,
   isLoading,
   activeImageUrl,
+  hideModelSelector = false,
   sourceAspectRatio,
   helperPrompt,
   onHelperPromptChange,
@@ -3595,27 +3718,29 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
 
         {/* Блок Выбора Модели */}
-        <div>
-          <Label title="Модель" />
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-            {(['gemini', 'seedream'] as const).map(model => (
-              <button
-                key={model}
-                onClick={() => setSelectedModel(model)}
-                className={cx(
-                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
-                  selectedModel === model
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800'
-                )}
-              >
-                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-            <Label title="Уточнение (необязательно)" />
+                {!hideModelSelector && (
+            <div>
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map(model => (
+                  <button
+                    key={model}
+                    onClick={() => setSelectedModel(model)}
+                    className={cx(
+                      "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                      selectedModel === model
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+             <Label title="Уточнение (необязательно)" />
             <div className="relative">
                 <textarea
                     rows={2}
@@ -4396,6 +4521,7 @@ interface StyleTransplanterProps {
   onGenerate: (referenceFile: File | null, model: ModelForStyle) => void;
   isLoading: boolean;
   sourceAspectRatio: number; // ОБЯЗАТЕЛЬНО для блокировки кроппера
+  hideModelSelector?: boolean;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
 }
@@ -4404,6 +4530,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   onGenerate,
   isLoading,
   sourceAspectRatio,
+  hideModelSelector = false,
   helperPrompt,
   onHelperPromptChange,
 }) => {
@@ -4415,7 +4542,6 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   // Управляет открытием/закрытием кроппера и хранит URL сырого файла
   const [cropRequest, setCropRequest] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileIsPresent = !!referenceFile;
   const textIsPresent = helperPrompt.trim().length > 0;
 
   const isReady = (referenceFile || helperPrompt.trim()) && !isLoading;
@@ -4511,28 +4637,31 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
         </div>
 
         {/* Блок выбора модели */}
-        <div>
-          <Label title="Модель" />
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
-            {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
-              <button
-                key={model}
-                onClick={() => setSelectedModel(model)}
-                className={cx(
-                  "py-1.5 rounded-md text-xs font-semibold transition-colors",
-                  selectedModel === model
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800'
-                )}
-              >
-                {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {!hideModelSelector && (
+          <div>
+            <Label title="Модель" />
+            <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+              {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
+                <button
+                  key={model}
+                  onClick={() => setSelectedModel(model)}
+                  className={cx(
+                    "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                    selectedModel === model
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-800'
+                  )}
+                >
+                  {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                </button>
+              ))}
+            </div>
+           </div>
 
-        <div>
-            <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
+        )}
+ 
+         <div>
+             <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
             <div className="relative">
                 <textarea
                     rows={3}
@@ -4596,6 +4725,7 @@ interface TextureTransplanterProps {
   isLoading: boolean;
   activeImageUrl: string | null;
   sourceAspectRatio: number;
+  hideModelSelector?: boolean;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
 }
@@ -4605,6 +4735,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+  hideModelSelector = false,
   helperPrompt,
   onHelperPromptChange,
 }) => {
@@ -4620,6 +4751,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
   // <<< 3. НОВЫЙ СТЕЙТ ДЛЯ УПРАВЛЕНИЯ КРОППЕРОМ
   const [cropRequest, setCropRequest] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'gemini' | 'seedream'>('gemini');
 
   const isReady = textureFile && targetMapFile && !isLoading;
 
@@ -4687,7 +4819,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
   const handleSubmit = () => {
     if (!isReady || !targetMapFile || !textureFile) return;
-    onGenerate(targetMapFile, textureFile, 'gemini');
+    onGenerate(targetMapFile, textureFile, selectedModel);
   };
 
   return (
@@ -4746,8 +4878,30 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         </div>
         
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
-        <div>
-            <Label title="Уточнение (необязательно)" />
+        {!hideModelSelector && (
+            <div>
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map(model => (
+                  <button
+                    key={model}
+                    onClick={() => setSelectedModel(model)}
+                    className={cx(
+                      "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                      selectedModel === model
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        
+         <div>
+             <Label title="Уточнение (необязательно)" />
             <div className="relative">
                 <textarea
                     rows={2}
@@ -4796,6 +4950,394 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         />
       )}
     </>
+  );
+};
+```
+
+---
+
+## Файл: `src/components/sidebar/UserInstructionEditor.tsx`
+
+```typescript
+// src/components/sidebar/UserInstructionEditor.tsx
+import React from 'react';
+
+import { MainPrompt } from './MainPrompt';
+import { ActionButtons } from './ActionButtons';
+
+// Используем только те пропсы, что реально нужны для этого урезанного компонента
+type UserInstructionEditorProps = {
+  prompt: string;
+  setPrompt: (value: string) => void;
+  promptTokenCount: number;
+  showNeg: boolean;
+  setShowNeg: (value: React.SetStateAction<boolean>) => void;
+  negativePrompt: string;
+  setNegativePrompt: (value: string) => void;
+  negativeTokenCount: number;
+  isReadyToGenerate: boolean;
+  isLoading: boolean;
+  onGenerate: () => void;
+  onCancel: () => void;
+  onClear: () => void;
+  error: string | null;
+  sourceFile: File | null; // ActionButtons его использует для отображения типа файла
+};
+
+export const UserInstructionEditor: React.FC<UserInstructionEditorProps> = (props) => {
+  return (
+    <div className="space-y-5 pt-3">
+      <MainPrompt
+        activeTab={'PRO'} // Мы всегда в PRO-режиме здесь
+        prompt={props.prompt}
+        setPrompt={props.setPrompt}
+        promptTokenCount={props.promptTokenCount}
+        showNeg={props.showNeg}
+        setShowNeg={props.setShowNeg}
+        negativePrompt={props.negativePrompt}
+        setNegativePrompt={props.setNegativePrompt}
+        negativeTokenCount={props.negativeTokenCount}
+      />
+
+      {/* ModelSelector и ModelSettings здесь нет. Они захардкожены в хуке. */}
+
+      <ActionButtons
+        isReadyToGenerate={props.isReadyToGenerate}
+        isLoading={props.isLoading}
+        onGenerate={props.onGenerate}
+        onCancel={props.onCancel}
+        onClear={props.onClear}
+        error={props.error}
+        activeTab={'PRO'}
+        sourceFile={props.sourceFile}
+      />
+    </div>
+  );
+};
+```
+
+---
+
+## Файл: `src/components/sidebar/UserProTools.tsx`
+
+```typescript
+// src/components/sidebar/UserProTools.tsx
+import React, { useState, useEffect } from 'react';
+import type { useUserImageWorkspace } from '@/hooks/useUserImageWorkspace';
+import Image from 'next/image';
+
+// Импортируем все наши инструменты
+import { UserInstructionEditor } from './UserInstructionEditor';
+import { TextureTransplanter } from './TextureTransplanter';
+import { BackgroundReplacer } from './BackgroundReplacer';
+import { StyleTransplanter } from './StyleTransplanter';
+import { ObjectInjector } from './ObjectInjector';
+import { ObjectInjector3D } from './ObjectInjector3D';
+import { MultiArrowEditor } from '../editor/MultiArrowEditor';
+import { Label } from '../ui/FormControls';
+
+type UserProToolsProps = ReturnType<typeof useUserImageWorkspace>;
+
+export const UserProTools: React.FC<UserProToolsProps> = (props) => {
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isBgReplacerOpen, setIsBgReplacerOpen] = useState(false);
+  const [isTextureTransplanterOpen, setIsTextureTransplanterOpen] = useState(false);
+  const [isStyleTransplanterOpen, setIsStyleTransplanterOpen] = useState(false);
+  const [isObjectInjectorOpen, setIsObjectInjectorOpen] = useState(false);
+  const [isObjectInjector3DOpen, setIsObjectInjector3DOpen] = useState(false);
+  const [isArrowSectionOpen, setIsArrowSectionOpen] = useState(false);
+  
+  const [isArrowEditorOpen, setIsArrowEditorOpen] = useState(false);
+  const [arrowMapBlob, setArrowMapBlob] = useState<Blob | null>(null);
+  const [arrowMapPreviewUrl, setArrowMapPreviewUrl] = useState<string | null>(null);
+  const [arrowInstructions, setArrowInstructions] = useState<string>('');
+
+  const sourceAspectRatio = props.activeNodeDims
+    ? props.activeNodeDims.w / props.activeNodeDims.h
+    : props.imageInfo
+    ? props.imageInfo.w / props.imageInfo.h
+    : 16 / 9;
+
+  useEffect(() => {
+    return () => {
+      if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    };
+  }, [arrowMapPreviewUrl]);
+
+  const handleArrowEditorConfirm = (imageBlob: Blob, instructionsText: string) => {
+    setArrowMapBlob(imageBlob);
+    setArrowInstructions(instructionsText);
+    if (arrowMapPreviewUrl) URL.revokeObjectURL(arrowMapPreviewUrl);
+    setArrowMapPreviewUrl(URL.createObjectURL(imageBlob));
+    setIsArrowEditorOpen(false);
+  };
+
+  const handleSendArrowEdits = () => {
+    if (!arrowMapBlob || !arrowInstructions.trim()) return;
+    props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions);
+  };
+
+  return (
+    <div className="space-y-3">
+      {props.activeHistory.length > 0 && (
+        <div className="mb-2">
+          <button
+            onClick={props.handleChangeSource}
+            className="w-full text-center text-xs text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 bg-yellow-900/20 rounded-md py-2 transition"
+          >
+            ↩︎ Сменить исходник
+          </button>
+        </div>
+      )}
+
+      <h3 className="text-sm font-semibold text-gray-200">Мастерская (PRO)</h3>
+
+      <div className="space-y-2">
+        {/* Правка по инструкции (Qwen) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button onClick={() => setIsEditorOpen((v) => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+            {isEditorOpen ? '▼' : '►'} Правка по инструкции
+          </button>
+          {isEditorOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <UserInstructionEditor
+                prompt={props.prompt}
+                setPrompt={props.setPrompt}
+                promptTokenCount={props.promptTokenCount}
+                showNeg={props.showNeg}
+                setShowNeg={props.setShowNeg}
+                negativePrompt={props.negativePrompt}
+                setNegativePrompt={props.setNegativePrompt}
+                negativeTokenCount={props.negativeTokenCount}
+                isReadyToGenerate={props.isReadyToGeneratePro}
+                isLoading={props.isLoading}
+                onGenerate={props.onGeneratePro}
+                onCancel={props.onCancel}
+                onClear={props.onClearPro}
+                error={props.error}
+                sourceFile={props.activeNode ? new File([], "pro_mode") : null}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Замена Фона (Nano Banana) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button onClick={() => setIsBgReplacerOpen((v) => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+            {isBgReplacerOpen ? '▼' : '►'} Замена Фона
+          </button>
+          {isBgReplacerOpen && (
+            <div className="p-3 border-t border-gray-700/50">
+              <BackgroundReplacer
+                onGenerate={props.onGenerateBackgroundReplacement}
+                isLoading={props.isLoading}
+                sourceAspectRatio={sourceAspectRatio}
+                hideModelSelector={true}
+                helperPrompt={props.helperPrompts.background}
+                onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, background: val }))}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Замена Текстуры (Nano Banana) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+            <button onClick={() => setIsTextureTransplanterOpen(v => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+                {isTextureTransplanterOpen ? '▼' : '►'} Замена Текстуры
+            </button>
+            {isTextureTransplanterOpen && (
+                <div className="p-3 border-t border-gray-700/50">
+                    <TextureTransplanter
+                        onGenerate={props.onGenerateTextureReplacement}
+                        isLoading={props.isLoading}
+                        activeImageUrl={props.activeNode?.imageUrl ?? null}
+                        sourceAspectRatio={sourceAspectRatio}
+                        hideModelSelector={true}
+                        helperPrompt={props.helperPrompts.texture}
+                        onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, texture: val }))}
+                    />
+                </div>
+            )}
+        </div>
+
+        {/* Замена Стиля (Nano Banana) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+            <button onClick={() => setIsStyleTransplanterOpen(v => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+                {isStyleTransplanterOpen ? '▼' : '►'} Замена Стиля
+            </button>
+            {isStyleTransplanterOpen && (
+                <div className="p-3 border-t border-gray-700/50">
+                    <StyleTransplanter
+                        onGenerate={props.onGenerateStyleReplacement}
+                        isLoading={props.isLoading}
+                        sourceAspectRatio={sourceAspectRatio}
+                        hideModelSelector={true}
+                        helperPrompt={props.helperPrompts.style}
+                        onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, style: val }))}
+                    />
+                </div>
+            )}
+        </div>
+
+        {/* Внедрение Объекта 2D (Nano Banana) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+            <button onClick={() => setIsObjectInjectorOpen(v => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+                {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта (2D)
+            </button>
+            {isObjectInjectorOpen && (
+                <div className="p-3 border-t border-gray-700/50">
+                    <ObjectInjector
+                        onGenerate={props.onGenerateObjectInjection}
+                        isLoading={props.isLoading}
+                        activeImageUrl={props.activeNode?.imageUrl ?? null}
+                        sourceAspectRatio={sourceAspectRatio}
+                        hideModelSelector={true}
+                        helperPrompt={props.helperPrompts.object}
+                        onHelperPromptChange={(val) => props.setHelperPrompts(p => ({ ...p, object: val }))}
+                    />
+                </div>
+            )}
+        </div>
+
+        {/* Интеграция Объекта 3D (Nano Banana) */}
+        <div className="bg-gray-900/50 border border-purple-800/50 rounded-lg">
+          <button onClick={() => setIsObjectInjector3DOpen((v) => !v)} className="w-full text-left text-sm font-medium text-purple-400 p-3">
+            {isObjectInjector3DOpen ? '▼' : '►'} Интеграция Объекта (3D)
+          </button>
+          {isObjectInjector3DOpen && (
+            <div className="p-3 border-t border-purple-800/50">
+              <ObjectInjector3D
+                saunaImageUrl={props.activeNode?.imageUrl ?? null}
+                onGenerate={props.onGenerateObjectInjection3D}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Редактор по Стрелкам (SeeDream) */}
+        <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
+          <button onClick={() => setIsArrowSectionOpen((v) => !v)} className="w-full text-left text-sm font-medium text-cyan-400 p-3">
+            {isArrowSectionOpen ? '▼' : '►'} Редактор по Стрелкам
+          </button>
+          {isArrowSectionOpen && (
+            <div className="p-3 border-t border-gray-700/50 space-y-3">
+              {arrowMapPreviewUrl ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label title="Карта инструкций (превью)" />
+                    <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
+                      <Image src={arrowMapPreviewUrl} alt="Arrow map preview" fill sizes="150px" className="object-contain" />
+                      <button onClick={() => setArrowMapBlob(null)} className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition" title="Изменить/Убрать карту">✕</button>
+                    </div>
+                  </div>
+                  <button onClick={handleSendArrowEdits} className="w-full text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2.5">
+                    Применить правки
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setIsArrowEditorOpen(true)} disabled={!props.activeNode} className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500">
+                  ✍️ Открыть редактор
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {isArrowEditorOpen && props.activeNode && (
+        <MultiArrowEditor
+          imageSrc={props.activeNode.imageUrl}
+          onCancel={() => setIsArrowEditorOpen(false)}
+          onConfirm={handleArrowEditorConfirm}
+        />
+      )}
+    </div>
+  );
+};
+```
+
+---
+
+## Файл: `src/components/sidebar/UserSidebar.tsx`
+
+```typescript
+// src/components/sidebar/UserSidebar.tsx
+import React from "react";
+import type { useUserImageWorkspace } from "@/hooks/useUserImageWorkspace";
+import { FileUpload } from './FileUpload';
+import { EnvironmentSettings } from './EnvironmentSettings';
+import { ActionButtons } from './ActionButtons';
+import { Label } from '../ui/FormControls';
+import { ModeSwitcher } from "./ModeSwitcher";
+import { UserProTools } from "./UserProTools";
+
+// Типизация пропсов - берем весь набор из хука, т.к. сайдбар - это главный потребитель
+type UserSidebarProps = ReturnType<typeof useUserImageWorkspace>;
+
+export const UserSidebar: React.FC<UserSidebarProps> = (props) => {
+  // Показываем переключатель в PRO, только если есть с чем работать
+  const showModeSwitcher = props.baseResults.length > 0;
+
+  return (
+    <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
+      
+      {showModeSwitcher && (
+        <ModeSwitcher
+          activeTab={props.activeTab}
+          handleTabChange={props.handleTabChange}
+        />
+      )}
+      
+      {props.activeTab === 'BASE' ? (
+        <>
+          {/* --- ИНТЕРФЕЙС ДЛЯ БАЗОВОЙ ГЕНЕРАЦИИ --- */}
+          <div className="space-y-5">
+            <FileUpload
+              imageInfo={props.imageInfo}
+              sourceFile={props.sourceFile}
+              dropRef={props.dropRef}
+              onDrop={props.onDrop}
+              onFileChange={props.onFileChange}
+            />
+            
+            <EnvironmentSettings
+              windowView={props.windowView}
+              setWindowView={props.setWindowView}
+              doorView={props.doorView}
+              setDoorView={props.setDoorView}
+            />
+
+            <div>
+              <Label title="Временное поле для JSON-автопромпта" />
+              <textarea
+                rows={5}
+                className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                placeholder="Сюда будет прилетать JSON из конструктора..."
+                value={props.rawPrompt}
+                onChange={(e) => props.setRawPrompt(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <ActionButtons
+            isReadyToGenerate={props.isReadyToGenerateBase}
+            isLoading={props.isLoading}
+            onGenerate={props.onGenerate}
+            onCancel={props.onCancel}
+            onClear={props.onClear}
+            error={props.error}
+            activeTab={'BASE'}
+            sourceFile={props.sourceFile}
+          />
+        </>
+      ) : (
+        <>
+          {/* --- ИНТЕРФЕЙС ДЛЯ PRO-РЕЖИМА --- */}
+          {/* Передаем все пропсы из хука в UserProTools */}
+          <UserProTools {...props} />
+        </>
+      )}
+    </aside>
   );
 };
 ```
@@ -5483,7 +6025,7 @@ export interface SidebarProps {
     texture: string;
     object: string;
   };
-  onGenerateObjectInjection3D: (targetMapFile: File, referenceObjectFile: File) => void;
+  onGenerateObjectInjection3D: (targetMapFile: File, referenceObjectFile: File, helperPrompt: string) => void;
   setHelperPrompts: React.Dispatch<React.SetStateAction<{
     background: string;
     style: string;
@@ -6276,7 +6818,19 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
 
     // 2. Собираем промпт, как и договаривались.
-    const prompt = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
+    // 2. 🔥 Собираем новый, ультимативный промпт под SeeDream 🔥
+    // Разбиваем инструкции из "сделай то, сделай это" в массив ["сделай то", "сделай это"]
+    const instructionsArray = instructionsText.split(',').map(instr => instr.trim()).filter(instr => instr.length > 0);
+
+    // Собираем нумерованный список приказов
+    const formattedInstructions = instructionsArray.map((instr, index) => `${index + 1}. ${instr}`).join('\n');
+
+    const prompt = `Execute the following numbered instructions at the locations indicated by the corresponding red arrows.
+
+    Instructions:
+    ${formattedInstructions}
+
+    CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and text annotations from the final image. The output should be a clean photograph.`;
 
     // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
     const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
@@ -6761,6 +7315,859 @@ export function useSettingsManager(imageInfo: { w: number; h: number } | null) {
     setSeedreamSettings,
   };
 }
+```
+
+---
+
+## Файл: `src/hooks/useUserImageWorkspace.ts`
+
+```typescript
+"use client";
+
+import { useState, useMemo, useEffect, useRef, KeyboardEvent } from "react";
+import { GenerationNode } from "@/lib/types";
+import { loadPersist, savePersist } from "@/lib/utils"; // оставил на будущее, не мешает
+import * as api from "@/lib/api";
+import { useFileHandler } from "@/hooks/useFileHandler";
+import { LLM_SYSTEM_PROMPT } from "@/lib/constants";
+
+// Этот хук — упрощённый "автопилот" для /user.
+// Модели и настройки захардкожены, без свободы выбора.
+
+type Dims = { w: number; h: number } | null;
+
+// ВАЖНО: NEG_DEFAULT нужен уже в initial state ниже — вынес его сюда
+const NEG_DEFAULT = "blurry, ugly, deformed, text, watermark";
+
+export function useUserImageWorkspace() {
+  // --- БЛОК УПРАВЛЕНИЯ ФАЙЛАМИ ---
+  const {
+    sourceFile,
+    sourceUrl,
+    sourceDataUrl,
+    imageInfo,
+    fileError,
+    dropRef,
+    onFileChange,
+    onDrop,
+    clearFile,
+  } = useFileHandler();
+
+  // --- БЛОК СОСТОЯНИЯ ---
+  const [activeTab, setActiveTab] = useState<"BASE" | "PRO">("BASE");
+  const [baseResults, setBaseResults] = useState<GenerationNode[]>([]);
+  const [selectedBaseResultUrl, setSelectedBaseResultUrl] = useState<string | null>(null);
+  const [compareSourceUrl, setCompareSourceUrl] = useState<string | null>(null);
+
+  // Состояние для PRO-режима
+  const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [activeNodeDims, setActiveNodeDims] = useState<Dims>(null);
+
+  // Промпты. RawPrompt для BASE, просто Prompt для PRO.
+  const [rawPrompt, setRawPrompt] = useState(""); // JSON-промпт из конструктора
+  const [prompt, setPrompt] = useState(""); // Промпт для PRO-редактора
+  const [negativePrompt, setNegativePrompt] = useState(NEG_DEFAULT);
+  const [showNeg, setShowNeg] = useState(false);
+  const [promptTokenCount] = useState(0);
+  const [negativeTokenCount] = useState(0);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [comparePos, setComparePos] = useState(50);
+  const [windowView, setWindowView] = useState("a lush green summer forest");
+  const [doorView, setDoorView] = useState("a cozy antechamber (changing room)");
+  const [helperPrompts, setHelperPrompts] = useState({
+    background: "",
+    style: "",
+    texture: "",
+    object: "",
+  });
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // --- ПРОИЗВОДНЫЕ СОСТОЯНИЯ ---
+  const activeHistory = useMemo(
+    () => workspaces[activeWorkspaceId ?? ""] ?? [],
+    [workspaces, activeWorkspaceId]
+  );
+
+  const activeNode = useMemo(
+    () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
+    [activeNodeId, activeHistory]
+  );
+
+  const isReadyToGenerateBase = useMemo(
+    () => !!sourceFile && !!rawPrompt.trim() && !isLoading,
+    [sourceFile, rawPrompt, isLoading]
+  );
+  const isReadyToGeneratePro = useMemo(
+    () => !!activeNode && !!prompt.trim() && !isLoading,
+    [activeNode, prompt, isLoading]
+  );
+
+  useEffect(() => {
+    if (fileError) setError(fileError);
+  }, [fileError]);
+
+  useEffect(() => {
+    if (!activeNode) {
+      setActiveNodeDims(null);
+      return;
+    }
+    getDimsFromUrl(activeNode.imageUrl).then(setActiveNodeDims);
+  }, [activeNode]);
+
+  useEffect(() => {
+    const p = loadPersist();
+    if (!p) return;
+
+    // Валидация состояния, чтобы не загружать битый PRO-режим
+    const loadedWorkspaces = p.workspaces ?? {};
+    const loadedActiveWorkspaceId = p.activeWorkspaceId ?? null;
+    let finalActiveTab = p.activeTab ?? "BASE";
+
+    if (
+      finalActiveTab === "PRO" &&
+      (!loadedActiveWorkspaceId || !loadedWorkspaces[loadedActiveWorkspaceId])
+    ) {
+      // Если мы должны быть в PRO, но воркспейса нет - падаем в BASE
+      finalActiveTab = "BASE";
+    }
+
+    setBaseResults(p.baseResults ?? []);
+    setWorkspaces(loadedWorkspaces);
+    setActiveWorkspaceId(loadedActiveWorkspaceId);
+    setActiveNodeId(p.activeNodeId ?? null);
+    setActiveTab(finalActiveTab);
+    
+    // Можно добавить загрузку и других полей, если нужно
+    setComparePos(p.comparePos ?? 50);
+
+  }, []); // Пустой массив зависимостей = выполняется один раз при монтировании
+
+  // Сохранение состояния при любом его изменении
+  useEffect(() => {
+    savePersist({
+      // BASE
+      baseResults,
+      selectedBaseResultUrl,
+      
+      // PRO
+      workspaces,
+      activeWorkspaceId,
+      activeNodeId,
+      activeNodeDims,
+
+      // UI State
+      activeTab,
+      comparePos,
+      
+      // Эти поля пока не используем в /user, но для совместимости пусть будут
+      prompt: '',
+      negativePrompt: '',
+      selectedModel: 'qwen',
+      qwenSettings: { guidance_scale: 0, num_inference_steps: 0, seed: 0 },
+      fluxSettings: { guidance_scale: 0, safety_tolerance: 0, seed: 0 },
+      seedreamSettings: { seed: 0, width: 0, height: 0 },
+      llmSettingsByModel: {},
+      sendImageToLlm: false,
+      showRefiner: false,
+      showNeg: false,
+      seedLock: false,
+      tab: 'compare',
+      seedreamTargetSize: 'original',
+    });
+  }, [
+    baseResults, 
+    selectedBaseResultUrl, 
+    workspaces, 
+    activeWorkspaceId, 
+    activeNodeId, 
+    activeNodeDims,
+    activeTab, 
+    comparePos
+  ]);
+
+  // --- УТИЛИТЫ ---
+
+  const fail = (msg: string) => {
+    setError(msg);
+    setIsLoading(false);
+    return;
+  };
+
+  const randomSeed = () => Math.floor(Math.random() * 2_147_483_647);
+
+  const getDimsFromUrl = (url: string): Promise<Dims> =>
+    new Promise((res) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => res(null);
+      img.src = url;
+    });
+
+  // фиксированные настройки под "автопилот"
+  const getFixedSettings = (model: "qwen" | "gemini" | "seedream" | "flux", dims?: Dims) => {
+    const base = {
+      guidance_scale: 4,
+      num_inference_steps: 30,
+      seed: randomSeed(),
+    } as Record<string, any>;
+
+    // seedream обычно чувствителен к тем же размерам, что и вход
+    if (model === "seedream" && dims) {
+      base.target_width = dims.w;
+      base.target_height = dims.h;
+    }
+
+    // Можно расширять при желании, но по умолчанию — одинаково
+    return base;
+  };
+
+  const fetchUrlAsFile = async (url: string, name = "source.png"): Promise<File> => {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return new File([blob], name, { type: blob.type });
+  };
+
+  // --- ГЛАВНАЯ ЛОГИКА АВТОМАТИЗАЦИИ (BASE) ---
+  const onGenerate = async () => {
+    if (!isReadyToGenerateBase) {
+      setError("Нужен и скетч, и JSON-промпт.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      // 1) Автозапуск промпт-инженера (жёстко: gpt-5-mini)
+      const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
+      const refinePayload = {
+        prompt: finalRawPrompt,
+        model: "gpt-5-mini",
+        system: LLM_SYSTEM_PROMPT,
+        image: sourceDataUrl, // всегда шлём картинку
+        max_completion_tokens: 2000, // <<< ВОТ ОН, РОДИМЫЙ
+      };
+
+      const refineData = await api.refinePrompt(refinePayload, abortControllerRef.current.signal);
+      const refinedPrompt = refineData?.refinedPrompt;
+      if (!refinedPrompt) throw new Error("Промпт-инженер вернул пустой результат.");
+
+      // 2) Генерация (жёстко: qwen)
+      const settings = getFixedSettings("qwen");
+      const formData = new FormData();
+      formData.append("image", sourceFile!);
+      formData.append("prompt", refinedPrompt);
+      formData.append("negative_prompt", NEG_DEFAULT);
+      formData.append("model", "qwen");
+      formData.append("settings", JSON.stringify(settings));
+
+      const imageData = await api.generateImage(formData, abortControllerRef.current!.signal);
+
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: null,
+        imageUrl: imageData.imageUrl,
+        sourceImageUrl: sourceDataUrl!,
+        prompt: refinedPrompt,
+        negativePrompt: NEG_DEFAULT,
+        model: "qwen",
+        settings,
+      };
+
+      setBaseResults((prev) => [...prev, newNode]);
+      setSelectedBaseResultUrl(newNode.imageUrl);
+      setCompareSourceUrl(newNode.sourceImageUrl);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- ЛОГИКА PRO-РЕЖИМА ---
+
+  const ensureProContext = () => {
+    if (!activeNode) {
+      fail("Нет активного узла для доработки.");
+      return false;
+    }
+    if (!activeWorkspaceId) {
+      fail("Критическая ошибка: нет активного воркспейса.");
+      return false;
+    }
+    return true;
+  };
+
+  const pushProNode = (node: GenerationNode) => {
+    if (!activeWorkspaceId) return;
+    setWorkspaces((prev) => ({
+      ...prev,
+      [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), node],
+    }));
+    setActiveNodeId(node.id);
+  };
+
+  // Замена фона через окна/дверь (жёстко: gemini)
+  // Модель 'gemini' зашита по брифу
+  const onGenerateBackgroundReplacement = async (
+    referenceFile: File | null,
+    targets: { window: boolean; door: boolean }
+  ) => {
+    if (!ensureProContext() || !activeNode) return;
+
+    const targetAreas: string[] = [];
+    if (targets.window) targetAreas.push("the windows");
+    if (targets.door) targetAreas.push("the glass door");
+    if (targetAreas.length === 0) return fail("Не выбраны цели для замены фона.");
+
+    const promptTarget = targetAreas.join(" and ");
+    const userClarification = helperPrompts.background.trim();
+
+    let prompt: string;
+    if (referenceFile) {
+      const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+      prompt = userClarification ? `${basePrompt} User clarification: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+      prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+    } else {
+      return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+    }
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const dims = activeNodeDims;
+      const srcFile = await fetchUrlAsFile(activeNode.imageUrl, "pro_source.png");
+
+      const settings = getFixedSettings("gemini", dims);
+      const formData = new FormData();
+      formData.append("image", srcFile);
+      if (referenceFile) formData.append("reference_image", referenceFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", NEG_DEFAULT);
+      formData.append("model", "gemini");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: NEG_DEFAULT,
+        model: "gemini",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Замена текстуры по карте со стрелкой + файл текстуры (жёстко: seedream)
+  // Модель 'gemini' зашита по брифу
+  const onGenerateTextureReplacement = async (targetMapFile: File, textureFile: File) => {
+    if (!ensureProContext() || !activeNode) return;
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image.
+Crucially:
+1. The red arrow must be completely removed from the final result.
+2. Preserve the MACRO-geometry: the overall shape of the object, as well as the scene's lighting and shadows.
+3. Preserve the MICRO-geometry: If the target object is made of individual components like planks, boards, or tiles, you MUST maintain the original seams, gaps, and grooves between them. The new texture should be applied to each individual component, not to the object as a single flat surface.`;
+    const userClarification = helperPrompts.texture.trim();
+    const prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+    const negativePrompt = "red arrow, pointer, indicator";
+
+    try {
+      const dims = activeNodeDims;
+      const settings = getFixedSettings("gemini", dims);
+
+      const formData = new FormData();
+      formData.append("image", targetMapFile);
+      formData.append("reference_image", textureFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", negativePrompt);
+      formData.append("model", "gemini");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: "gemini",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Замена стиля (жёстко: gemini)
+  // Модель 'gemini' зашита по брифу
+  const onGenerateStyleReplacement = async (referenceFile: File | null) => {
+    if (!ensureProContext() || !activeNode) return;
+
+    const userClarification = helperPrompts.style.trim();
+    let prompt: string;
+
+    if (referenceFile) {
+      const basePrompt = `Redraw the source image (image 1), adhering to two strict rules:
+1. **PRESERVE:** You must preserve ONLY the geometry and composition of the source image.
+2. **TRANSFER:** You must transfer the style from the reference image (image 2) down to the smallest detail, including its exact color palette, lighting scheme, and surface textures.`;
+      prompt = userClarification ? `${basePrompt}\nAdditional user hint: "${userClarification}".` : basePrompt;
+    } else if (userClarification) {
+      prompt = `Redraw the source image to perfectly match the following style: "${userClarification}".
+CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. The final result must match the described style down to the smallest detail in terms of color, lighting, and texture.`;
+    } else {
+      return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+    }
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const dims = activeNodeDims;
+      const srcFile = await fetchUrlAsFile(activeNode.imageUrl, "pro_source.png");
+
+      const settings = getFixedSettings("gemini", dims);
+      const formData = new FormData();
+      formData.append("image", srcFile);
+      if (referenceFile) formData.append("reference_image", referenceFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", NEG_DEFAULT);
+      formData.append("model", "gemini");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: NEG_DEFAULT,
+        model: "gemini",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Внедрение объекта по карте со стрелкой + референс объекта (жёстко: seedream)
+  // Модель 'gemini' зашита по брифу
+  const onGenerateObjectInjection = async (targetMapFile: File, objectFile: File) => {
+    if (!ensureProContext() || !activeNode) return;
+
+    const basePrompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+    const userClarification = helperPrompts.object.trim();
+    const prompt = userClarification ? `${basePrompt} A user has provided this clarification: "${userClarification}".` : basePrompt;
+    const negativePrompt = "red arrow, pointer, indicator";
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const dims = activeNodeDims;
+      const settings = getFixedSettings("gemini", dims);
+
+      const formData = new FormData();
+      formData.append("image", targetMapFile);
+      formData.append("reference_image", objectFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", negativePrompt);
+      formData.append("model", "gemini");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: "gemini",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Внедрение 3D-объекта (реф-картинка) в сплошную красную область (жёстко: gemini)
+  // Модель 'gemini' зашита по брифу
+  const onGenerateObjectInjection3D = async (
+    targetMapFile: File,
+    referenceObjectFile: File,
+    extraHint: string
+  ) => {
+    if (!ensureProContext() || !activeNode) return;
+
+    let prompt =
+      'Place the object from the reference image into the solid red area on the main image. For a seamless integration, you MUST adapt the object to the scene by perfectly matching its lighting, shadows, and PERSPECTIVE. You are permitted to slightly alter the object\'s original angle if it\'s necessary to achieve photorealism and correct alignment with the scene\'s geometry. CRITICAL INSTRUCTION: The red area is a placement marker ONLY. It MUST be completely removed and invisible in the final image.';
+    if (extraHint?.trim()) prompt += ` An additional user hint is: "${extraHint.trim()}".`;
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const dims = activeNodeDims;
+      const settings = getFixedSettings("gemini", dims);
+
+      const formData = new FormData();
+      formData.append("image", targetMapFile);
+      formData.append("reference_image", referenceObjectFile);
+      formData.append("prompt", prompt);
+      formData.append("model", "gemini");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: "",
+        model: "gemini",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Редактирование по стрелкам (жёстко: seedream)
+  // Модель 'seedream' зашита по брифу
+  const onGenerateArrowEdits = async (imageBlob: Blob, instructionsText: string) => {
+    if (!ensureProContext() || !activeNode) return;
+    if (!instructionsText.trim()) return fail("Нет инструкций для выполнения.");
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const imageFile = new File([imageBlob], "arrow_edit_map.png", { type: "image/png" });
+
+      // разбиваем инструкции в нумерованный список
+      const instructionsArray = instructionsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const formatted = instructionsArray.map((v, i) => `${i + 1}. ${v}`).join("\n");
+
+      const prompt = `Execute the following numbered instructions at the locations indicated by the corresponding red arrows.
+
+Instructions:
+${formatted}
+
+CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and text annotations from the final image. The output should be a clean photograph.`;
+
+      const dims = activeNodeDims;
+      const settings = getFixedSettings("seedream", dims);
+
+      const formData = new FormData();
+      formData.append("image", imageFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", "text, annotations, arrows, indicators, pointers");
+      formData.append("model", "seedream");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt: "text, annotations, arrows, indicators, pointers",
+        model: "seedream",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Генерация из PRO-редактора по инструкции (жёстко: qwen)
+  // Модель 'qwen' зашита по брифу
+  const onGeneratePro = async () => {
+    if (!isReadyToGeneratePro || !activeNode) return;
+
+    setIsLoading(true);
+    setError(null);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const srcFile = await fetchUrlAsFile(activeNode.imageUrl, "pro_source.png");
+      const settings = getFixedSettings("qwen", activeNodeDims);
+
+      const formData = new FormData();
+      formData.append("image", srcFile);
+      formData.append("prompt", prompt);
+      formData.append("negative_prompt", negativePrompt);
+      formData.append("model", "qwen");
+      formData.append("settings", JSON.stringify(settings));
+
+      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const newNode: GenerationNode = {
+        id: crypto.randomUUID(),
+        parentId: activeNodeId,
+        imageUrl: data.imageUrl,
+        sourceImageUrl: activeNode.sourceImageUrl,
+        prompt,
+        negativePrompt,
+        model: "qwen",
+        settings,
+      };
+      pushProNode(newNode);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        if (e.name === "AbortError") setError("Операция отменена.");
+        else setError(e.message);
+      } else {
+        setError("Неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- УПРАВЛЕНИЕ UI И СОСТОЯНИЕМ ---
+
+  const onCancel = () => {
+    abortControllerRef.current?.abort();
+    setIsLoading(false);
+    setError("Генерация отменена.");
+  };
+
+  const onClear = () => {
+    clearFile();
+    setError(null);
+    setBaseResults([]);
+    setSelectedBaseResultUrl(null);
+    setCompareSourceUrl(null);
+    setActiveNodeId(null);
+    setActiveWorkspaceId(null);
+    setWorkspaces({});
+  };
+
+  const onClearPro = () => {
+    setPrompt("");
+    setNegativePrompt(NEG_DEFAULT);
+    setShowNeg(false);
+    setError(null);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (activeTab === "BASE") onGenerate();
+      else onGeneratePro();
+    }
+    if (e.key === "Escape" && isLoading) onCancel();
+  };
+
+  // Промоут последнего BASE-результата в PRO-воркспейс (если вдруг интерфейс захочет)
+  const handlePromoteToPro = (nodeId?: string) => {
+    const id = nodeId ?? baseResults[baseResults.length - 1]?.id;
+    if (!id) return fail("Нет базового результата для продвижения.");
+    const nodeToPromote = baseResults.find((n) => n.id === id);
+    if (!nodeToPromote) return fail("Базовый узел не найден.");
+
+    if (workspaces[id]) {
+      const history = workspaces[id];
+      setActiveNodeId(history[history.length - 1].id);
+    } else {
+      setWorkspaces((prev) => ({ ...prev, [id]: [{ ...nodeToPromote }] }));
+      setActiveNodeId(id);
+    }
+    setActiveWorkspaceId(id);
+  };
+
+    
+
+  const handleTabChange = (tab: "BASE" | "PRO") => {
+    if (tab === "PRO" && !activeWorkspaceId && baseResults.length > 0) {
+      // Авто-переход в PRO на последнем результате, если еще не в воркспейсе
+      handlePromoteToPro();
+    } else {
+      setActiveTab(tab);
+    }
+  };
+
+  const handleChangeSource = () => {
+    setActiveWorkspaceId(null);
+    setActiveNodeId(null);
+    setActiveTab("BASE");
+  };
+
+  const deleteWorkspace = (workspaceId: string) => {
+    setWorkspaces((prev) => {
+      const next = { ...prev };
+      delete next[workspaceId];
+      return next;
+    });
+    if (activeWorkspaceId === workspaceId) {
+      setActiveWorkspaceId(null);
+      setActiveNodeId(null);
+    }
+  };
+
+  // --- ВОЗВРАТ ---
+  return {
+    // files
+    sourceFile,
+    sourceUrl,
+    imageInfo,
+    onFileChange,
+    onDrop,
+    dropRef,
+
+    // промпты и состояние
+    rawPrompt,
+    setRawPrompt,
+    windowView,
+    setWindowView,
+    doorView,
+    setDoorView,
+    helperPrompts,
+    setHelperPrompts,
+    prompt,
+    setPrompt,
+    negativePrompt,
+    setNegativePrompt,
+    showNeg,
+    setShowNeg,
+    promptTokenCount,
+    negativeTokenCount,
+
+    // состояние
+    isReadyToGenerateBase,
+    isReadyToGeneratePro,
+    isLoading,
+    error,
+
+    // экшены
+    onGenerate,
+    onGeneratePro,
+    onCancel,
+    onClear,
+    onClearPro,
+    onKeyDown,
+
+    // Canvas/Compare
+    baseResults,
+    selectedBaseResultUrl,
+    compareSourceUrl,
+    comparePos,
+    setComparePos,
+    selectBaseResultForCompare: (node: GenerationNode) => {
+      setSelectedBaseResultUrl(node.imageUrl);
+      setCompareSourceUrl(node.sourceImageUrl);
+    },
+
+    // PRO
+    workspaces,
+    activeHistory,
+    activeNode,
+    activeNodeDims,
+    activeWorkspaceId,
+    activeNodeId,
+    setActiveNodeId,
+    handlePromoteToPro,
+    handleChangeSource,
+    deleteWorkspace,
+
+    // PRO-генераторы
+    onGenerateBackgroundReplacement, // model = 'gemini'
+    onGenerateTextureReplacement,    // model = 'gemini' (по брифу)
+    onGenerateStyleReplacement,      // model = 'gemini'
+    onGenerateObjectInjection,       // model = 'gemini'
+    onGenerateObjectInjection3D,     // model = 'gemini'
+    onGenerateArrowEdits,            // model = 'seedream'
+
+    // UI
+    activeTab,
+    handleTabChange,
+  };
+}
+
 ```
 
 ---

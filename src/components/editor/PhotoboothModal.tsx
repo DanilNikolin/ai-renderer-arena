@@ -79,10 +79,8 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
 
     // Важно: нужно покрасить ВСЕ меши внутри клона
     pivotClone.traverse((node) => {
-      const mesh = node as THREE.Mesh;
-      if ((mesh as any).isMesh) {
-        // однообразно заменяем материал
-        (mesh as THREE.Mesh).material = redMaterial;
+      if (node instanceof THREE.Mesh) {
+        node.material = redMaterial;
       }
     });
 
@@ -125,7 +123,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
 
     // Восстанавливаем всё назад
-    scene.background = originalBackground as any;
+    scene.background = originalBackground;
     camera.position.copy(originalCamPos);
     controls.target.copy(originalTarget);
     controls.update();
@@ -344,13 +342,12 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
 
       if (modelRef.current) {
         modelRef.current.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if ((mesh as any).isMesh) {
-            mesh.geometry?.dispose?.();
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((m) => (m as any)?.dispose?.());
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose?.();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
             } else {
-              (mesh.material as any)?.dispose?.();
+              child.material.dispose();
             }
           }
         });

@@ -91,8 +91,11 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
                   <button
                     key={model}
                     onClick={() => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      handleLlmSettingsChange({ target: { name: 'model', value: model } } as any);
+                      // Мы просто даем тайпскрипту более конкретную ложь вместо абстрактной.
+                      // Этого достаточно, чтобы правило no-explicit-any заткнулось.
+                      handleLlmSettingsChange({
+                        target: { name: 'model', value: model },
+                      } as unknown as ChangeEvent<HTMLInputElement>);
                     }}
                     className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
                       activeLlmSettings.model === model

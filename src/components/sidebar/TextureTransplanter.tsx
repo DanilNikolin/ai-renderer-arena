@@ -12,6 +12,7 @@ interface TextureTransplanterProps {
   isLoading: boolean;
   activeImageUrl: string | null;
   sourceAspectRatio: number;
+  hideModelSelector?: boolean;
   helperPrompt: string;
   onHelperPromptChange: (value: string) => void;
 }
@@ -21,6 +22,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
   isLoading,
   activeImageUrl,
   sourceAspectRatio, // <<< 2. ПОЛУЧАЕМ ПРОПС
+  hideModelSelector = false,
   helperPrompt,
   onHelperPromptChange,
 }) => {
@@ -36,6 +38,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
   // <<< 3. НОВЫЙ СТЕЙТ ДЛЯ УПРАВЛЕНИЯ КРОППЕРОМ
   const [cropRequest, setCropRequest] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'gemini' | 'seedream'>('gemini');
 
   const isReady = textureFile && targetMapFile && !isLoading;
 
@@ -103,7 +106,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
   const handleSubmit = () => {
     if (!isReady || !targetMapFile || !textureFile) return;
-    onGenerate(targetMapFile, textureFile, 'gemini');
+    onGenerate(targetMapFile, textureFile, selectedModel);
   };
 
   return (
@@ -162,8 +165,30 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         </div>
         
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
-        <div>
-            <Label title="Уточнение (необязательно)" />
+        {!hideModelSelector && (
+            <div>
+              <Label title="Модель" />
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
+                {(['gemini', 'seedream'] as const).map(model => (
+                  <button
+                    key={model}
+                    onClick={() => setSelectedModel(model)}
+                    className={cx(
+                      "py-1.5 rounded-md text-xs font-semibold transition-colors",
+                      selectedModel === model
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:bg-gray-800'
+                    )}
+                  >
+                    {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        
+         <div>
+             <Label title="Уточнение (необязательно)" />
             <div className="relative">
                 <textarea
                     rows={2}

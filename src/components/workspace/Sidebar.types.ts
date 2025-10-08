@@ -81,7 +81,7 @@ export interface SidebarProps {
     texture: string;
     object: string;
   };
-  onGenerateObjectInjection3D: (targetMapFile: File, referenceObjectFile: File) => void;
+  onGenerateObjectInjection3D: (targetMapFile: File, referenceObjectFile: File, helperPrompt: string) => void;
   setHelperPrompts: React.Dispatch<React.SetStateAction<{
     background: string;
     style: string;
