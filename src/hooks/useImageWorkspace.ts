@@ -657,7 +657,19 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
 
     // 2. Собираем промпт, как и договаривались.
-    const prompt = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
+    // 2. 🔥 Собираем новый, ультимативный промпт под SeeDream 🔥
+    // Разбиваем инструкции из "сделай то, сделай это" в массив ["сделай то", "сделай это"]
+    const instructionsArray = instructionsText.split(',').map(instr => instr.trim()).filter(instr => instr.length > 0);
+
+    // Собираем нумерованный список приказов
+    const formattedInstructions = instructionsArray.map((instr, index) => `${index + 1}. ${instr}`).join('\n');
+
+    const prompt = `Execute the following numbered instructions at the locations indicated by the corresponding red arrows.
+
+    Instructions:
+    ${formattedInstructions}
+
+    CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and text annotations from the final image. The output should be a clean photograph.`;
 
     // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
     const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
