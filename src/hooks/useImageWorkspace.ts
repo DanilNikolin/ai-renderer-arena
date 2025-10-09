@@ -1,12 +1,24 @@
 // src/hooks/useImageWorkspace.ts
-import { useState, useMemo, useEffect, useRef, ChangeEvent, KeyboardEvent, useCallback } from "react";
+import {
+  useState,
+  useMemo,
+  useEffect,
+  useRef,
+  ChangeEvent,
+  KeyboardEvent,
+  useCallback,
+} from "react";
 import { encode } from "gpt-tokenizer";
-import { LlmSettings, Model, GenerationNode } from "@/lib/types";
+import type { PersistState } from "@/lib/types";
 import { loadPersist, savePersist } from "@/lib/utils";
 import * as api from "@/lib/api";
 import { useFileHandler } from "@/hooks/useFileHandler";
 import { useSettingsManager } from "@/hooks/useSettingsManager";
+import { LlmSettings, Model, GenerationNode } from "@/lib/types";
 import { LLM_SYSTEM_PROMPT } from "@/lib/constants";
+import { genId } from "@/lib/id";
+
+/* ---------------- LLM defaults ---------------- */
 
 const defaultLlmSettings: LlmSettings = {
   model: "gpt-5-mini",
@@ -23,10 +35,74 @@ const initialLlmSettingsByModel: { [key in Model]?: Partial<LlmSettings> } = {
   seedream: { ...defaultLlmSettings },
 };
 
+/* ---------------- DTO and /me types ---------------- */
+
+export type WorkspaceStateDTO = {
+  activeTab: "BASE" | "PRO";
+  comparePos: number;
+  selectedBaseResultUrl: string | null;
+  activeNodeId: string | null;
+  sourceUrl: string | null; // persistent original image URL (MinIO)
+  baseResults: Array<{ id: string; imageUrl: string; parentId?: string | null }>;
+  workspaces: Record<
+    string,
+    Array<{ id: string; parentId?: string | null; imageUrl: string }>
+  >;
+};
+
+type MeResponse =
+  | { authenticated: false }
+  | {
+      authenticated: true;
+      projectId: string;
+      mode: "local_dev" | "prod";
+      accountId: string | null;
+    };
+
+/* ---------------- helpers (typed, no any) ---------------- */
+
+function debounce<A extends unknown[], R>(
+  fn: (...args: A) => R,
+  ms: number
+): (...args: A) => void {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  return (...args: A) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => {
+      void fn(...args);
+    }, ms);
+  };
+}
+
+function dtoToGenNode(n: {
+  id: string;
+  imageUrl: string;
+  parentId?: string | null;
+}): GenerationNode {
+  return {
+    id: n.id,
+    parentId: n.parentId ?? null,
+    imageUrl: n.imageUrl,
+    sourceImageUrl: null,
+    prompt: "",
+    negativePrompt: "",
+    model: "gemini" as Model,
+    settings: {} as GenerationNode["settings"],
+  } as GenerationNode;
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/* ========================================================================== */
+/*                                    HOOK                                    */
+/* ========================================================================== */
+
 export function useImageWorkspace() {
   const {
     sourceFile,
-    sourceUrl,
+    sourceUrl, // ephemeral browser URL
     sourceDataUrl,
     imageInfo,
     fileError,
@@ -42,18 +118,26 @@ export function useImageWorkspace() {
   const [baseResults, setBaseResults] = useState<GenerationNode[]>([]);
   const [selectedBaseResultUrl, setSelectedBaseResultUrl] = useState<string | null>(null);
   const [compareSourceUrl, setCompareSourceUrl] = useState<string | null>(null);
-  const [workspaces, setWorkspaces] = useState<{ [rootNodeId: string]: GenerationNode[] }>({});
+
+  const [workspaces, setWorkspaces] = useState<Record<string, GenerationNode[]>>({});
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
-  const [activeNodeDims, setActiveNodeDims] = useState<{w: number, h: number} | null>(null);
+  const [activeNodeDims, setActiveNodeDims] = useState<{ w: number; h: number } | null>(
+    null
+  );
+
   const [prompt, setPrompt] = useState("");
   const [rawPrompt, setRawPrompt] = useState("");
   const [isRefining, setIsRefining] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
   const [sendImageToLlm, setSendImageToLlm] = useState(true);
   const [showRefiner, setShowRefiner] = useState(false);
-  const [llmSettingsByModel, setLlmSettingsByModel] = useState(initialLlmSettingsByModel);
-  const [negativePrompt, setNegativePrompt] = useState("blurry, ugly, deformed, text, watermark");
+  const [llmSettingsByModel, setLlmSettingsByModel] = useState(
+    initialLlmSettingsByModel
+  );
+  const [negativePrompt, setNegativePrompt] = useState(
+    "blurry, ugly, deformed, text, watermark"
+  );
   const [showNeg, setShowNeg] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,13 +150,18 @@ export function useImageWorkspace() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
-
   const [helperPrompts, setHelperPrompts] = useState({
-    background: '',
-    style: '',
-    texture: '',
-    object: '',
+    background: "",
+    style: "",
+    texture: "",
+    object: "",
   });
+
+  /** Persistent original image URL (MinIO) */
+  const [sourcePersistUrl, setSourcePersistUrl] = useState<string | null>(null);
+
+  /** Whether we should save server-side */
+  const [isAuthed, setIsAuthed] = useState(false);
 
   useEffect(() => {
     if (fileError) setError(fileError);
@@ -86,24 +175,24 @@ export function useImageWorkspace() {
     () => activeHistory.find((node) => node.id === activeNodeId) ?? null,
     [activeNodeId, activeHistory]
   );
-  
+
+  /* --- compute dimensions for active PRO node --- */
   useEffect(() => {
     if (!activeNode) {
       setActiveNodeDims(null);
       return;
     }
-
-    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> => 
+    const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = "anonymous";
         img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
         img.onerror = rej;
         img.src = url;
       });
-
-    getDimsFromUrl(activeNode.imageUrl).then(setActiveNodeDims);
-    
+    getDimsFromUrl(activeNode.imageUrl)
+      .then(setActiveNodeDims)
+      .catch(() => setActiveNodeDims(null));
   }, [activeNode]);
 
   const isReadyToGenerate = useMemo(() => {
@@ -125,42 +214,22 @@ export function useImageWorkspace() {
     }
   }, [sourceFile]);
 
-  // persist load
+  /* ================= Upload original to MinIO (once per file) ================= */
   useEffect(() => {
-    const p = loadPersist();
-    if (!p) return;
-
-    // --- НАЧАЛО ПАТЧА ---
-    // Валидация состояния PRO-режима перед загрузкой
-    const loadedWorkspaces = p.workspaces ?? {};
-    const loadedActiveWorkspaceId = p.activeWorkspaceId ?? null;
-    const loadedActiveNodeId = p.activeNodeId ?? null;
-
-    let finalActiveWorkspaceId = null;
-    let finalActiveNodeId = null;
-    let finalActiveTab = p.activeTab ?? "BASE";
-
-    // Проверяем, что сохраненный воркспейс и узел все еще существуют
-    if (
-      loadedActiveWorkspaceId &&
-      loadedWorkspaces[loadedActiveWorkspaceId] &&
-      loadedWorkspaces[loadedActiveWorkspaceId].some(node => node.id === loadedActiveNodeId)
-    ) {
-      // Все заебись, состояние консистентное. Восстанавливаем.
-      finalActiveWorkspaceId = loadedActiveWorkspaceId;
-      finalActiveNodeId = loadedActiveNodeId;
-    } else if (finalActiveTab === "PRO") {
-      // Если что-то пошло не так, а мы пытались загрузиться в PRO,
-      // принудительно валимся в BASE, чтобы не показывать пустой экран.
-      finalActiveTab = "BASE";
+    let cancelled = false;
+    if (!sourceFile) {
+      setSourcePersistUrl(null);
+      return;
     }
 
-    setWorkspaces(loadedWorkspaces);
-    setActiveWorkspaceId(finalActiveWorkspaceId);
-    setActiveNodeId(finalActiveNodeId);
-    setActiveTab(finalActiveTab);
-    // --- КОНЕЦ ПАТЧА ---
+    if (!isAuthed) {
+      // not logged in yet → keep it local for now
+      setSourcePersistUrl(null);
+      setCompareSourceUrl(sourceDataUrl ?? null);
+      return;
+    }
 
+<<<<<<< HEAD
     // Остальные настройки грузим как обычно
     setBaseResults(p.baseResults ?? []);
     setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
@@ -170,7 +239,27 @@ export function useImageWorkspace() {
     if (p.qwenSettings) settingsManager.setQwenSettings(p.qwenSettings);
     if (p.fluxSettings) settingsManager.setFluxSettings(p.fluxSettings);
     if (p.seedreamSettings) settingsManager.setSeedreamSettings(p.seedreamSettings);
-    if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
+    if (p.llmSettingsByModel) {
+  // Создаем новый объект настроек, чтобы не мусорить
+  const mergedSettings = { ...initialLlmSettingsByModel };
+
+  // Проходим по всем моделям, которые у нас в принципе есть
+  (Object.keys(mergedSettings) as Model[]).forEach(modelKey => {
+    const persistedModelSettings = p.llmSettingsByModel?.[modelKey] ?? {};
+    
+    // Собираем итоговые настройки для модели:
+    // 1. Берем дефолты (на всякий случай).
+    // 2. Накатываем сверху сохраненные юзером (его температура, топ-п).
+    // 3. ПРИНУДИТЕЛЬНО втыкаем наш каноничный системный промпт.
+    mergedSettings[modelKey] = {
+      ...defaultLlmSettings,
+      ...persistedModelSettings,
+      systemPrompt: LLM_SYSTEM_PROMPT, // Вот он, гвоздь программы
+    };
+  });
+  
+  setLlmSettingsByModel(mergedSettings);
+}
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
     if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
@@ -178,57 +267,298 @@ export function useImageWorkspace() {
     if (typeof p.comparePos === "number") setComparePos(p.comparePos);
     if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+=======
+    
+    // (async () => {
+    //   try {
+    //     const fd = new FormData();
+    //     fd.append("file", sourceFile);
+    //     const res = await fetch("/api/files/upload", { method: "POST", body: fd });
+    //     if (!res.ok) return;
+    //     const j = (await res.json()) as unknown as { url: string };
+    //     if (!cancelled) {
+    //       setSourcePersistUrl(j.url);
+    //       setCompareSourceUrl(j.url);
+    //     }
+    //   } catch {
+    //     /* ignore; local-only flow will still work */
+    //   }
+    // })();
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append("file", sourceFile);
+        const res = await fetch("/api/files/upload", { method: "POST", body: fd });
+        const j = await res.json();
+  
+        if (!res.ok) {
+          console.error("Upload failed:", j);
+          return;
+        }
+        if (!cancelled) {
+          setSourcePersistUrl(j.url as string);
+          setCompareSourceUrl(j.url as string);
+        }
+      } catch (err) {
+        console.error("Upload error:", err);
+      }
+    })();
+>>>>>>> upstream/test-merge
 
-  // persist save
+    return () => {
+      cancelled = true;
+    };
+//  }, [sourceFile]);
+}, [sourceFile, isAuthed, sourceDataUrl]);
+  /* ======================= Server-first restore (fallback local) ======================= */
   useEffect(() => {
-    savePersist({
-      prompt,
-      negativePrompt,
-      llmSettingsByModel,
-      sendImageToLlm,
-      showRefiner,
-      showNeg,
-      comparePos,
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+        const me = (await meRes.json()) as unknown as MeResponse;
+        const authed = me.authenticated === true;
+        if (cancelled) return;
+        setIsAuthed(authed);
+
+        if (authed) {
+          const sRes = await fetch("/api/workspace/state", { cache: "no-store" });
+          if (!sRes.ok && sRes.status !== 204) throw new Error("state fetch failed");
+          if (cancelled) return;
+
+          if (sRes.status === 200) {
+            const saved = (await sRes.json()) as unknown as WorkspaceStateDTO;
+
+            const hydratedWorkspaces: Record<string, GenerationNode[]> =
+              Object.fromEntries(
+                Object.entries(saved.workspaces ?? {}).map(([root, list]) => [
+                  root,
+                  (list ?? []).map((n) => dtoToGenNode(n)),
+                ])
+              );
+
+            const hydratedBase: GenerationNode[] = (saved.baseResults ?? []).map((n) =>
+              dtoToGenNode(n)
+            );
+
+            setWorkspaces(hydratedWorkspaces);
+            setBaseResults(hydratedBase);
+            setActiveTab(saved.activeTab ?? "BASE");
+            setComparePos(
+              typeof saved.comparePos === "number" ? saved.comparePos : 50
+            );
+            setSelectedBaseResultUrl(saved.selectedBaseResultUrl ?? null);
+            setActiveNodeId(saved.activeNodeId ?? null);
+
+            // Source image URL for CompareView after reload
+            setSourcePersistUrl(saved.sourceUrl ?? null);
+            if (saved.sourceUrl) setCompareSourceUrl(saved.sourceUrl);
+            return; // server restore complete
+          }
+        }
+
+        /* -------- Local fallback (typed, no any) -------- */
+        const raw = loadPersist();
+        if (!raw || !isObject(raw)) return;
+        const p = raw as Partial<PersistState>;
+
+        // Workspaces & selection
+        const loadedWorkspaces =
+          (p.workspaces as unknown as Record<string, GenerationNode[]>) ?? {};
+        const loadedActiveWorkspaceId = p.activeWorkspaceId ?? null;
+        const loadedActiveNodeId = p.activeNodeId ?? null;
+
+        let finalActiveWorkspaceId: string | null = null;
+        let finalActiveNodeId: string | null = null;
+        let finalActiveTab: "BASE" | "PRO" = p.activeTab ?? "BASE";
+
+        if (
+          loadedActiveWorkspaceId &&
+          loadedWorkspaces[loadedActiveWorkspaceId] &&
+          loadedWorkspaces[loadedActiveWorkspaceId].some(
+            (node) => node.id === loadedActiveNodeId
+          )
+        ) {
+          finalActiveWorkspaceId = loadedActiveWorkspaceId;
+          finalActiveNodeId = loadedActiveNodeId;
+        } else if (finalActiveTab === "PRO") {
+          finalActiveTab = "BASE";
+        }
+
+        setWorkspaces(loadedWorkspaces);
+        setActiveWorkspaceId(finalActiveWorkspaceId);
+        setActiveNodeId(finalActiveNodeId);
+        setActiveTab(finalActiveTab);
+
+        setBaseResults(
+          (p.baseResults as unknown as GenerationNode[]) ?? []
+        );
+        setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
+        setPrompt(p.prompt ?? "");
+        setNegativePrompt(
+          p.negativePrompt ?? "blurry, ugly, deformed, text, watermark"
+        );
+
+        if (p.sourcePersistUrl) {
+          setSourcePersistUrl(p.sourcePersistUrl);
+          setCompareSourceUrl(p.sourcePersistUrl);
+        }
+
+        // Restore settings with precise types
+        const selModel = p.selectedModel as Model | undefined;
+        if (selModel) settingsManager.setSelectedModel(selModel);
+        if (p.qwenSettings) {
+          settingsManager.setQwenSettings(
+            p.qwenSettings as typeof settingsManager.qwenSettings
+          );
+        }
+        if (p.fluxSettings) {
+          settingsManager.setFluxSettings(
+            p.fluxSettings as typeof settingsManager.fluxSettings
+          );
+        }
+        if (p.seedreamSettings) {
+          settingsManager.setSeedreamSettings(
+            p.seedreamSettings as typeof settingsManager.seedreamSettings
+          );
+        }
+        if (p.llmSettingsByModel) {
+          setLlmSettingsByModel(
+            p.llmSettingsByModel as typeof llmSettingsByModel
+          );
+        }
+        if (typeof p.sendImageToLlm === "boolean")
+          setSendImageToLlm(p.sendImageToLlm);
+        if (typeof p.showRefiner === "boolean")
+          setShowRefiner(p.showRefiner);
+        if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
+        if (typeof p.seedLock === "boolean")
+          settingsManager.setSeedLock(p.seedLock);
+        if (typeof p.comparePos === "number") setComparePos(p.comparePos);
+        if (p.seedreamTargetSize) {
+          settingsManager.setSeedreamTargetSize(
+            p.seedreamTargetSize as typeof settingsManager.seedreamTargetSize
+          );
+        }
+      } catch {
+        /* ignore; UI remains usable */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ============================== Save snapshot ============================== */
+
+  const snapshot = useMemo<WorkspaceStateDTO>(
+    () => ({
       activeTab,
-      baseResults,
+      comparePos,
       selectedBaseResultUrl,
-      workspaces,
-      activeWorkspaceId,
-      // СТАЛО: Сохраняем ID активного узла
       activeNodeId,
-      activeNodeDims,
-      selectedModel: settingsManager.selectedModel,
-      qwenSettings: settingsManager.qwenSettings,
-      fluxSettings: settingsManager.fluxSettings,
-      seedreamSettings: settingsManager.seedreamSettings,
-      seedLock: settingsManager.seedLock,
-      seedreamTargetSize: settingsManager.seedreamTargetSize,
-      tab: "compare",
-    });
+      sourceUrl: sourcePersistUrl,
+      baseResults: baseResults.map((n) => ({
+        id: n.id,
+        imageUrl: n.imageUrl,
+        parentId: n.parentId ?? null,
+      })),
+      workspaces: Object.fromEntries(
+        Object.entries(workspaces).map(([root, list]) => [
+          root,
+          list.map((n) => ({
+            id: n.id,
+            imageUrl: n.imageUrl,
+            parentId: n.parentId ?? null,
+          })),
+        ])
+      ),
+    }),
+    [
+      activeTab,
+      comparePos,
+      selectedBaseResultUrl,
+      activeNodeId,
+      sourcePersistUrl,
+      baseResults,
+      workspaces,
+    ]
+  );
+
+  const saveServerDebounced = useMemo(
+    () =>
+      debounce(async (state: WorkspaceStateDTO) => {
+        try {
+          await fetch("/api/workspace/state", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ state }),
+          });
+        } catch {
+          /* ignore transient failures */
+        }
+      }, 800),
+    []
+  );
+
+  useEffect(() => {
+    if (isAuthed) {
+      saveServerDebounced(snapshot);
+    } else {
+      // Local persist (typed)
+      const payload: PersistState = {
+        prompt,
+        negativePrompt,
+        llmSettingsByModel,
+        sendImageToLlm,
+        showRefiner,
+        showNeg,
+        comparePos: snapshot.comparePos,
+        activeTab: snapshot.activeTab,
+        baseResults,
+        selectedBaseResultUrl: snapshot.selectedBaseResultUrl,
+        workspaces,
+        activeWorkspaceId,
+        activeNodeId: snapshot.activeNodeId,
+        activeNodeDims,
+        selectedModel: settingsManager.selectedModel,
+        qwenSettings: settingsManager.qwenSettings,
+        fluxSettings: settingsManager.fluxSettings,
+        seedreamSettings: settingsManager.seedreamSettings,
+        seedLock: settingsManager.seedLock,
+        seedreamTargetSize: settingsManager.seedreamTargetSize,
+        tab: "compare",
+        sourcePersistUrl, // NEW
+      };
+      savePersist(payload);
+    }
   }, [
+    snapshot,
     prompt,
     negativePrompt,
     llmSettingsByModel,
     sendImageToLlm,
     showRefiner,
     showNeg,
-    comparePos,
-    activeTab,
-    baseResults,
-    selectedBaseResultUrl,
-    workspaces,
     activeWorkspaceId,
-    activeNodeId,
     activeNodeDims,
-    
-    // Раскладываем settingsManager на конкретные поля, чтобы исключить лишние срабатывания
     settingsManager.selectedModel,
     settingsManager.qwenSettings,
     settingsManager.fluxSettings,
     settingsManager.seedreamSettings,
     settingsManager.seedLock,
     settingsManager.seedreamTargetSize,
+    isAuthed,
+    saveServerDebounced,
+    baseResults,
+    workspaces,
+    sourcePersistUrl,
   ]);
+
+  /* ============================== misc effects ============================== */
 
   useEffect(() => {
     setPromptTokenCount(encode(prompt || "").length);
@@ -236,7 +566,10 @@ export function useImageWorkspace() {
   }, [prompt, negativePrompt]);
 
   useEffect(() => {
-    if (selectedBaseResultUrl && !baseResults.some((node) => node.imageUrl === selectedBaseResultUrl)) {
+    if (
+      selectedBaseResultUrl &&
+      !baseResults.some((node) => node.imageUrl === selectedBaseResultUrl)
+    ) {
       setSelectedBaseResultUrl(null);
     }
     if (activeWorkspaceId && !workspaces[activeWorkspaceId]) {
@@ -245,6 +578,8 @@ export function useImageWorkspace() {
       setActiveTab("BASE");
     }
   }, [baseResults, workspaces, selectedBaseResultUrl, activeWorkspaceId]);
+
+  /* ============================== UI handlers ============================== */
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -255,54 +590,52 @@ export function useImageWorkspace() {
   };
 
   const onGenerateTextureReplacement = async (
-    targetMapFile: File, // сауна + стрелка
-    textureFile: File,   // текстура
-    model: 'gemini' | 'seedream'
+    targetMapFile: File,
+    textureFile: File,
+    model: "gemini" | "seedream"
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
-    let prompt: string;
-    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image.
-      Crucially:
-      1. The red arrow must be completely removed from the final result.
-      2. Preserve the MACRO-geometry: the overall shape of the object, as well as the scene's lighting and shadows.
-      3. Preserve the MICRO-geometry: If the target object is made of individual components like planks, boards, or tiles, you MUST maintain the original seams, gaps, and grooves between them. The new texture should be applied to each individual component, not to the object as a single flat surface.`;
-    const userClarification = helperPrompts.texture.trim();
 
-    if (userClarification) {
-      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
-    } else {
-      prompt = basePrompt;
-    }
-    
-    const negativePrompt = "red arrow, pointer, indicator";
+    const basePrompt = `The source image contains a prominent red arrow pointing to a target object. The reference image contains a texture. Your task is to replace the texture of the object indicated by the arrow with the texture from the reference image.
+Crucially:
+1. The red arrow must be completely removed from the final result.
+2. Preserve the MACRO-geometry: the overall shape of the object, as well as the scene's lighting and shadows.
+3. Preserve the MICRO-geometry: If the target object is made of individual components like planks, boards, or tiles, you MUST maintain the original seams, gaps, and grooves between them. The new texture should be applied to each individual component, not to the object as a single flat surface.`;
+    const userClarification = helperPrompts.texture.trim();
+    const promptText = userClarification
+      ? `${basePrompt} A user has provided this clarification: "${userClarification}".`
+      : basePrompt;
+    const neg = "red arrow, pointer, indicator";
 
     settingsManager.updateSeedForGeneration();
     const settings = settingsManager.getCurrentSettings(model);
 
     const formData = new FormData();
-    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
-    formData.append("reference_image", textureFile); // Референс - текстура
-    formData.append("prompt", prompt);
-    formData.append("negative_prompt", negativePrompt);
+    formData.append("image", targetMapFile);
+    formData.append("reference_image", textureFile);
+    formData.append("prompt", promptText);
+    formData.append("negative_prompt", neg);
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
-        negativePrompt,
-        model: model,
+        prompt: promptText,
+        negativePrompt: neg,
+        model,
         settings,
       };
-
       if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
       setWorkspaces((prev) => ({
         ...prev,
@@ -313,9 +646,7 @@ export function useImageWorkspace() {
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else {
-        setError("Неизвестная ошибка при генерации.");
-      }
+      } else setError("Неизвестная ошибка при генерации.");
     } finally {
       setIsLoading(false);
     }
@@ -381,25 +712,24 @@ export function useImageWorkspace() {
 
   const onGenerateStyleReplacement = async (
     referenceFile: File | null,
-    model: 'gemini' | 'seedream'
+    model: "gemini" | "seedream"
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
-    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
-    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+    const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = "anonymous";
         img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
         img.onerror = rej;
         img.src = url;
       });
-    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
-    // --- КОНЕЦ БЛОКА ---
+    const activeNodeDimsLocal = await getDimsFromUrl(activeNode.imageUrl);
 
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
 
+<<<<<<< HEAD
     let prompt: string;
       const userClarification = helperPrompts.style.trim();
 
@@ -419,6 +749,25 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
           return fail("Не указан ни файл-референс, ни текстовое описание фона.");
       }
     // Превращаем URL активной сауны в файл для отправки
+=======
+    const userClarification = helperPrompts.style.trim();
+    if (!referenceFile && !userClarification)
+      return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+
+    const promptText = referenceFile
+      ? (() => {
+          const base = `Redraw the **source image** to match the artistic style of the **reference image**.
+**CRITICAL:**
+1. Preserve the exact geometry, object placement, and composition of the **source image**.
+2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
+3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
+          return userClarification
+            ? `${base} A user has provided this clarification: "${userClarification}".`
+            : base;
+        })()
+      : `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
+
+>>>>>>> upstream/test-merge
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -429,31 +778,31 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     }
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDimsLocal);
 
     const formData = new FormData();
-    formData.append("image", sourceImageFile); // Главное изображение - сауна
-     if (referenceFile) {
-        formData.append("reference_image", referenceFile);
-    }
-    formData.append("prompt", prompt);
+    formData.append("image", sourceImageFile);
+    if (referenceFile) formData.append("reference_image", referenceFile);
+    formData.append("prompt", promptText);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
+        prompt: promptText,
         negativePrompt,
-        model: model,
+        model,
         settings,
       };
-
       if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
       setWorkspaces((prev) => ({
         ...prev,
@@ -464,9 +813,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else {
-        setError("Неизвестная ошибка при генерации.");
-      }
+      } else setError("Неизвестная ошибка при генерации.");
     } finally {
       setIsLoading(false);
     }
@@ -475,34 +822,30 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
   const onGenerateBackgroundReplacement = async (
     referenceFile: File | null,
     targets: { window: boolean; door: boolean },
-    model: 'gemini' | 'seedream'
+    model: "gemini" | "seedream"
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
-    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
-    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+    const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = "anonymous";
         img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
         img.onerror = rej;
         img.src = url;
       });
-    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
-    // --- КОНЕЦ БЛОКА ---
+    const activeNodeDimsLocal = await getDimsFromUrl(activeNode.imageUrl);
 
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    const targetAreas = [];
-    if (targets.window) targetAreas.push("the windows");
-    if (targets.door) targetAreas.push("the glass door");
-    const promptTarget = targetAreas.join(" and ");
-
+    const areas: string[] = [];
+    if (targets.window) areas.push("the windows");
+    if (targets.door) areas.push("the glass door");
+    const promptTarget = areas.join(" and ");
     if (!promptTarget) return fail("Не выбраны цели для замены фона.");
-    let prompt: string;
-        const userClarification = helperPrompts.background.trim();
 
+<<<<<<< HEAD
         if (referenceFile) {
     const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
         prompt = userClarification ? `${basePrompt} User clarification: "${userClarification}".` : basePrompt;
@@ -511,6 +854,21 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     } else {
         return fail("Не указан ни файл-референс, ни текстовое описание фона.");
     }
+=======
+    const userClarification = helperPrompts.background.trim();
+    if (!referenceFile && !userClarification)
+      return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+
+    const promptText = referenceFile
+      ? (() => {
+          const base = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
+          return userClarification
+            ? `${base} A user has provided this clarification: "${userClarification}".`
+            : base;
+        })()
+      : `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
+
+>>>>>>> upstream/test-merge
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -521,31 +879,31 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     }
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDimsLocal);
 
     const formData = new FormData();
     formData.append("image", sourceImageFile);
-    if (referenceFile) {
-        formData.append("reference_image", referenceFile);
-    }
-    formData.append("prompt", prompt);
+    if (referenceFile) formData.append("reference_image", referenceFile);
+    formData.append("prompt", promptText);
     formData.append("negative_prompt", negativePrompt);
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
+        prompt: promptText,
         negativePrompt,
-        model: model,
+        model,
         settings,
       };
-
       if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
       setWorkspaces((prev) => ({
         ...prev,
@@ -556,70 +914,66 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else {
-        setError("Неизвестная ошибка при генерации.");
-      }
+      } else setError("Неизвестная ошибка при генерации.");
     } finally {
       setIsLoading(false);
     }
   };
 
   const onGenerateObjectInjection = async (
-    targetMapFile: File, // сауна + стрелка
-    objectFile: File,    // объект для внедрения
-    model: 'gemini' | 'seedream'
+    targetMapFile: File,
+    objectFile: File,
+    model: "gemini" | "seedream"
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
-    // --- БЛОК ОПРЕДЕЛЕНИЯ РЕАЛЬНЫХ РАЗМЕРОВ АКТИВНОГО УЗЛА (как в onGenerateArrowEdits) ---
-    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+    const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = "anonymous";
         img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
         img.onerror = rej;
         img.src = url;
       });
-    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
-    // --- КОНЕЦ БЛОКА ---
+    const activeNodeDimsLocal = await getDimsFromUrl(activeNode.imageUrl);
 
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
-    let prompt: string;
-    const basePrompt = `Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.`;
+
+    const basePrompt =
+      "Seamlessly integrate the object from the reference image into the source image at the location indicated by the red arrow. The arrow must be completely removed from the final result. Match the lighting, shadows, and perspective of the source image to ensure the object looks natural in the environment.";
     const userClarification = helperPrompts.object.trim();
-    
-    if (userClarification) {
-      prompt = `${basePrompt} A user has provided this clarification: "${userClarification}".`;
-    } else {
-      prompt = basePrompt;
-    }
-    const negativePrompt = "red arrow, pointer, indicator"; // Просим убрать остатки стрелки
+    const promptText = userClarification
+      ? `${basePrompt} A user has provided this clarification: "${userClarification}".`
+      : basePrompt;
+    const neg = "red arrow, pointer, indicator";
 
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDimsLocal);
 
     const formData = new FormData();
-    formData.append("image", targetMapFile); // Главное изображение - то, что со стрелкой
-    formData.append("reference_image", objectFile); // Референс - объект
-    formData.append("prompt", prompt);
-    formData.append("negative_prompt", negativePrompt);
+    formData.append("image", targetMapFile);
+    formData.append("reference_image", objectFile);
+    formData.append("prompt", promptText);
+    formData.append("negative_prompt", neg);
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
-        negativePrompt,
-        model: model,
+        prompt: promptText,
+        negativePrompt: neg,
+        model,
         settings,
       };
-
       if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
       setWorkspaces((prev) => ({
         ...prev,
@@ -630,9 +984,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else {
-        setError("Неизвестная ошибка при генерации.");
-      }
+      } else setError("Неизвестная ошибка при генерации.");
     } finally {
       setIsLoading(false);
     }
@@ -641,7 +993,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
   const onGenerateArrowEdits = async (
     imageBlob: Blob,
     instructionsText: string,
-    model: 'gemini' | 'seedream'
+    model: "gemini" | "seedream"
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
     if (!instructionsText.trim()) return fail("Нет инструкций для выполнения.");
@@ -650,8 +1002,12 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    // --- НАЧИНАЕТСЯ МАГИЯ ---
+    const imageFile = new File([imageBlob], "arrow_edit_map.png", {
+      type: "image/png",
+    });
+    const promptText = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
 
+<<<<<<< HEAD
     // 1. Создаем ФАЙЛ из BLOB'а, который пришел из редактора.
     //    Это и есть наша картинка со стрелками.
     const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
@@ -673,41 +1029,47 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
 
     // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
     const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
+=======
+    const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
+>>>>>>> upstream/test-merge
       new Promise((res, rej) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = "anonymous";
         img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
         img.onerror = rej;
         img.src = url;
       });
+    const activeNodeDimsLocal = await getDimsFromUrl(activeNode.imageUrl);
 
-    const activeNodeDims = await getDimsFromUrl(activeNode.imageUrl);
-
-    // 4. Готовим настройки, ПЕРЕДАВАЯ в них правильные размеры.
     settingsManager.updateSeedForGeneration();
-    const settings = settingsManager.getCurrentSettings(model, activeNodeDims);
+    const settings = settingsManager.getCurrentSettings(model, activeNodeDimsLocal);
 
-    // 5. Собираем FormData с ПРАВИЛЬНЫМ файлом.
     const formData = new FormData();
-    formData.append("image", imageFile); // <<< Отправляем файл со стрелками!
-    formData.append("prompt", prompt);
-    formData.append("negative_prompt", "text, annotations, arrows, indicators, pointers");
+    formData.append("image", imageFile);
+    formData.append("prompt", promptText);
+    formData.append(
+      "negative_prompt",
+      "text, annotations, arrows, indicators, pointers"
+    );
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
-        negativePrompt: "text, annotations, arrows, indicators, pointers", // негативный тоже сохраняем
-        model: model,
+        prompt: promptText,
+        negativePrompt:
+          "text, annotations, arrows, indicators, pointers",
+        model,
         settings,
       };
-
       if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
       setWorkspaces((prev) => ({
         ...prev,
@@ -718,15 +1080,15 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       if (e instanceof Error) {
         if (e.name === "AbortError") setError("Генерация отменена.");
         else setError(e.message);
-      } else {
-        setError("Неизвестная ошибка при генерации.");
-      }
+      } else setError("Неизвестная ошибка при генерации.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleLlmSettingsChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleLlmSettingsChange = (
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value, type } = e.target;
     const parsedValue = type === "number" ? parseFloat(value) : value;
     setLlmSettingsByModel((prev) => ({
@@ -756,11 +1118,16 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     let base64Image: string | undefined = undefined;
     if (sendImageToLlm && sourceFile) {
       const buffer = await sourceFile.arrayBuffer();
-      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
+      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(
+        buffer
+      )}`;
     }
 
     const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
-    const activeSettings = { ...defaultLlmSettings, ...llmSettingsByModel[settingsManager.selectedModel] };
+    const activeSettings = {
+      ...defaultLlmSettings,
+      ...llmSettingsByModel[settingsManager.selectedModel],
+    };
     const payload = {
       prompt: finalRawPrompt,
       model: activeSettings.model,
@@ -772,7 +1139,10 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     };
 
     try {
-      const data = await api.refinePrompt(payload, abortControllerRef.current.signal);
+      const data = await api.refinePrompt(
+        payload,
+        abortControllerRef.current.signal
+      );
       setPrompt(data.refinedPrompt);
       setShowRefiner(false);
     } catch (error) {
@@ -804,7 +1174,9 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       try {
         const response = await fetch(activeNode.imageUrl);
         const blob = await response.blob();
-        currentImageFile = new File([blob], "pro_source.png", { type: blob.type });
+        currentImageFile = new File([blob], "pro_source.png", {
+          type: blob.type,
+        });
       } catch {
         return fail("Не удалось загрузить изображение из активного узла.");
       }
@@ -821,19 +1193,26 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     formData.append("settings", JSON.stringify(settings));
 
     try {
-      const data = await api.generateImage(formData, abortControllerRef.current!.signal);
+      const data = await api.generateImage(
+        formData,
+        abortControllerRef.current!.signal
+      );
       const newNode: GenerationNode = {
-        id: crypto.randomUUID(),
+        id: genId(),
         parentId,
         imageUrl: data.imageUrl,
-        sourceImageUrl: activeTab === 'BASE' ? sourceDataUrl : activeNode?.sourceImageUrl ?? null,
+        // Prefer persistent original URL; fallback to data URL for BASE
+        sourceImageUrl:
+          activeTab === "BASE"
+            ? sourcePersistUrl ?? sourceDataUrl
+            : activeNode?.sourceImageUrl ?? null,
         prompt,
         negativePrompt,
         model: settingsManager.selectedModel,
         settings,
       };
-      if (activeTab === 'BASE') {
-        setBaseResults(prev => [...prev, newNode]);
+      if (activeTab === "BASE") {
+        setBaseResults((prev) => [...prev, newNode]);
         setSelectedBaseResultUrl(newNode.imageUrl);
         setCompareSourceUrl(newNode.sourceImageUrl);
       } else {
@@ -870,13 +1249,13 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        if (typeof event.target?.result !== "string") throw new Error("Не удалось прочитать файл.");
+        if (typeof event.target?.result !== "string")
+          throw new Error("Не удалось прочитать файл.");
         const parsed = JSON.parse(event.target.result);
         setJsonContent(JSON.stringify(parsed, null, 2));
         setJsonError(null);
         setIsJsonViewerOpen(true);
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (e) {
+      } catch {
         setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
         setJsonContent(null);
       }
@@ -926,24 +1305,18 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
 
   const handlePromoteToPro = (nodeId: string) => {
     const nodeToPromote = baseResults.find((node) => node.id === nodeId);
-    if (!nodeToPromote) {
+    if (!nodeToPromote)
       return fail("Критическая ошибка: не найден базовый узел для 'продвижения'.");
-    }
 
-    // Если воркспейс для этого узла УЖЕ существует, просто переключаемся на него.
     if (workspaces[nodeId]) {
       const history = workspaces[nodeId];
-      // Важно: делаем активным ПОСЛЕДНИЙ узел в истории этого воркспейса.
       setActiveNodeId(history[history.length - 1].id);
     } else {
-      // Если нет — создаем новый воркспейс.
-      const clonedRootNode = { ...nodeToPromote };
+      const clonedRootNode = { ...nodeToPromote } as GenerationNode;
       setWorkspaces((prev) => ({ ...prev, [nodeId]: [clonedRootNode] }));
-      // Первый узел в новом воркспейсе - это он сам.
       setActiveNodeId(nodeId);
     }
 
-    // В любом случае, мы делаем этот воркспейс активным и переходим в PRO.
     setActiveWorkspaceId(nodeId);
     setActiveTab("PRO");
   };
@@ -952,19 +1325,20 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     setBaseResults((prev) => prev.filter((node) => node.id !== nodeId));
   };
 
-  // СТАЛО: Новая функция-киллер
   const deleteWorkspace = (workspaceId: string) => {
     setWorkspaces((prev) => {
-      const newWorkspaces = { ...prev };
-      delete newWorkspaces[workspaceId];
-      return newWorkspaces;
+      const next = { ...prev };
+      delete next[workspaceId];
+      return next;
     });
     if (activeWorkspaceId === workspaceId) {
       setActiveWorkspaceId(null);
       setActiveNodeId(null);
-      setActiveTab('BASE');
+      setActiveTab("BASE");
     }
   };
+
+  /* ---------------- expose API ---------------- */
 
   return {
     ...settingsManager,
@@ -988,7 +1362,6 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     activeNode,
     activeNodeId,
     setActiveNodeId,
-    // СТАЛО: Отдаем сам объект воркспейсов наружу
     workspaces,
     comparePos,
     setComparePos,

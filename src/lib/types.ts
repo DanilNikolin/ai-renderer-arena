@@ -48,6 +48,7 @@ export type PersistState = {
   tab: "source" | "result" | "compare"; // <<< Это старое поле, его можно будет потом убрать, но пока оставим
   comparePos: number;
   seedreamTargetSize: 1024 | 1280 | 'original'; 
+  sourcePersistUrl?: string | null; 
 
   // Новая структура
   activeTab: 'BASE' | 'PRO';

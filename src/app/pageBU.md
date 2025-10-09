@@ -1,5 +1,5 @@
+//D:\Work\Image test for 3Dims (3 models)\ai-renderer-arena\src\app\page.tsx
 import ImageWorkspace from "@/components/ImageWorkspace";
-import AuthGate from "@/components/auth/AuthGate";
 
 export default function HomePage() {
   return (
@@ -12,9 +12,7 @@ export default function HomePage() {
           </p>
         </header>
 
-        <AuthGate>
-          <ImageWorkspace />
-        </AuthGate>
+        <ImageWorkspace />
       </div>
     </main>
   );

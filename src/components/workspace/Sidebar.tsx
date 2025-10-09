@@ -11,11 +11,12 @@ import { MainPrompt } from '../sidebar/MainPrompt';
 import { ModelSelector } from '../sidebar/ModelSelector';
 import { ModelSettings } from '../sidebar/ModelSettings';
 import { ActionButtons } from '../sidebar/ActionButtons';
+import AuthStatus from "@/components/sidebar/AuthStatus";
 
 export const Sidebar: React.FC<SidebarProps> = (props) => {
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
-
+      <AuthStatus />
       <ModeSwitcher
         activeTab={props.activeTab}
         handleTabChange={props.handleTabChange}
