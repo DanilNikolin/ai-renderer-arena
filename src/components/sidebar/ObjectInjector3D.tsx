@@ -62,10 +62,19 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
   const handleButtonClick = () => fileInputRef.current?.click();
 
   const handleModalConfirm = (targetMapBlob: Blob, referenceObjectBlob: Blob) => {
-    setTargetMapFile(new File([targetMapBlob], "target_map.png", { type: 'image/png' }));
-    setReferenceObjectFile(new File([referenceObjectBlob], "reference_object.png", { type: 'image/png' }));
-    setIsModalOpen(false);
-  };
+  // ===== ВСТАВЬ ЭТОТ БЛОК ДЛЯ ДИАГНОСТИКИ =====
+  console.log('ПЕРЕХВАЧЕНЫ БЛОБЫ ИЗ МОДАЛКИ:', { targetMapBlob, referenceObjectBlob });
+
+  const targetUrl = URL.createObjectURL(targetMapBlob);
+  const refUrl = URL.createObjectURL(referenceObjectBlob);
+  console.log('КАРТА ЦЕЛИ (скопируй и вставь в браузер):', targetUrl);
+  console.log('РЕФЕРЕНС ОБЪЕКТА (скопируй и вставь в браузер):', refUrl);
+  // ============================================
+
+  setTargetMapFile(new File([targetMapBlob], "target_map.png", { type: 'image/png' }));
+  setReferenceObjectFile(new File([referenceObjectBlob], "reference_object.png", { type: 'image/png' }));
+  setIsModalOpen(false);
+};
 
   const handleModalCancel = () => {
     setIsModalOpen(false);

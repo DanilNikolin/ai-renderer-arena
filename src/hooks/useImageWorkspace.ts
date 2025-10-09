@@ -170,7 +170,27 @@ export function useImageWorkspace() {
     if (p.qwenSettings) settingsManager.setQwenSettings(p.qwenSettings);
     if (p.fluxSettings) settingsManager.setFluxSettings(p.fluxSettings);
     if (p.seedreamSettings) settingsManager.setSeedreamSettings(p.seedreamSettings);
-    if (p.llmSettingsByModel) setLlmSettingsByModel(p.llmSettingsByModel);
+    if (p.llmSettingsByModel) {
+  // Создаем новый объект настроек, чтобы не мусорить
+  const mergedSettings = { ...initialLlmSettingsByModel };
+
+  // Проходим по всем моделям, которые у нас в принципе есть
+  (Object.keys(mergedSettings) as Model[]).forEach(modelKey => {
+    const persistedModelSettings = p.llmSettingsByModel?.[modelKey] ?? {};
+    
+    // Собираем итоговые настройки для модели:
+    // 1. Берем дефолты (на всякий случай).
+    // 2. Накатываем сверху сохраненные юзером (его температура, топ-п).
+    // 3. ПРИНУДИТЕЛЬНО втыкаем наш каноничный системный промпт.
+    mergedSettings[modelKey] = {
+      ...defaultLlmSettings,
+      ...persistedModelSettings,
+      systemPrompt: LLM_SYSTEM_PROMPT, // Вот он, гвоздь программы
+    };
+  });
+  
+  setLlmSettingsByModel(mergedSettings);
+}
     if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
     if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
     if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);

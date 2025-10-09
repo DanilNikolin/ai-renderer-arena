@@ -222,7 +222,8 @@ export default nextConfig;
     "openai": "^5.20.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "three-stdlib": "^2.36.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -2107,28 +2108,42 @@ export const MultiArrowEditor: React.FC<{
 
 ```typescript
 // src/components/editor/PhotoboothModal.tsx
+'use client';
+
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+// Типы импортим отдельно — инстансы берём через динамический импорт
+import type { OrbitControls as OrbitControlsType, TransformControls as TransformControlsType } from 'three-stdlib';
 
 interface PhotoboothModalProps {
   modelFile: File;
-  onConfirm: (targetMapBlob: Blob, referenceObjectBlob: Blob) => void; // два blob'а
+  onConfirm: (targetMapBlob: Blob, referenceObjectBlob: Blob) => void;
   onCancel: () => void;
   saunaImageUrl?: string | null;
 }
 
-// helper — Canvas → Blob
-const getCanvasBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-    }, 'image/png');
+type DraggingChangedEvent = { value: boolean };
+
+// Canvas → Blob
+const getCanvasBlob = (canvas: HTMLCanvasElement): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    try {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create blob from canvas'));
+        },
+        'image/png',
+        1
+      );
+    } catch (e) {
+      reject(e as Error);
+    }
   });
-};
 
 export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
   modelFile,
@@ -2141,21 +2156,19 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const controlsRef = useRef<OrbitControlsType | null>(null);
+  const transformControlsRef = useRef<TransformControlsType | null>(null);
+
   const rafRef = useRef<number | null>(null);
   const modelUrlRef = useRef<string | null>(null);
-
   const backgroundTextureRef = useRef<THREE.Texture | null>(null);
 
-  // Сырый объект модели (оригинальная сцена/группа из загрузчика)
   const modelRef = useRef<THREE.Group | null>(null);
-  // Пивот — отдельная группа, центрированная по bbox модели; вращаем ИМЕННО pivot
   const pivotRef = useRef<THREE.Group | null>(null);
 
-  // Размеры фоновой фотки
   const [saunaDims, setSaunaDims] = useState<{ w: number; h: number } | null>(null);
 
-  // Узнаём точные размеры фонового изображения
+  // Определяем размеры фоновой картинки
   useEffect(() => {
     if (!saunaImageUrl) {
       setSaunaDims({ w: 1024, h: 1024 });
@@ -2171,320 +2184,344 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     img.src = saunaImageUrl;
   }, [saunaImageUrl]);
 
-  // Снимок двух кадров: 1) target map (фон+красный клон), 2) reference (белый фон, автозум)
+  // Снимок двух кадров
   const handleConfirm = useCallback(async () => {
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    const pivot = pivotRef.current;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
 
-    if (!renderer || !scene || !camera || !controls || !pivot) return;
+    (async () => {
+      try {
+        const renderer = rendererRef.current;
+        const scene = sceneRef.current;
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        const pivot = pivotRef.current;
 
-    // --- Снимок #1: Карта цели (фон + красный клон pivot)
-    const redMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const pivotClone = pivot.clone(true);
+        if (!renderer || !scene || !camera || !controls || !pivot || !transformControlsRef.current) {
+          console.error('Не удалось сделать снимок: отсутствуют обязательные объекты.');
+          return;
+        }
 
-    // Важно: нужно покрасить ВСЕ меши внутри клона
-    pivotClone.traverse((node) => {
-      if (node instanceof THREE.Mesh) {
-        node.material = redMaterial;
+        // прячем гизмо
+        transformControlsRef.current.visible = false;
+
+        // --- Снимок #1: Карта цели (фон + красный клон pivot) ---
+        const redMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const pivotClone = pivot.clone(true);
+
+        pivotClone.traverse((node) => {
+          if ((node as THREE.Mesh).isMesh) {
+            const mesh = node as THREE.Mesh;
+            // Меняем материал на простой красный
+            mesh.material = redMaterial;
+          }
+        });
+
+        const prevVisible = pivot.visible;
+        pivot.visible = false;
+        scene.add(pivotClone);
+
+        renderer.render(scene, camera);
+        const targetMapBlob = await getCanvasBlob(renderer.domElement);
+
+        scene.remove(pivotClone);
+        pivot.visible = prevVisible;
+        redMaterial.dispose();
+
+        // --- Снимок #2: Референс с белым фоном (автозум на объект) ---
+        const originalBackground = scene.background;
+        const originalCamPos = camera.position.clone();
+        const originalTarget = controls.target.clone();
+
+        scene.background = new THREE.Color(0xffffff);
+        renderer.setClearAlpha(1.0);
+
+        const box = new THREE.Box3().setFromObject(pivot);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const distance = (size.length() * 0.5) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2));
+        const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+
+        camera.position.copy(center).add(direction.multiplyScalar(distance));
+        controls.target.copy(center);
+        controls.update();
+
+        renderer.render(scene, camera);
+        const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
+
+        // возвращаем состояния
+        scene.background = originalBackground ?? null;
+        camera.position.copy(originalCamPos);
+        controls.target.copy(originalTarget);
+        controls.update();
+
+        onConfirm(targetMapBlob, referenceObjectBlob);
+      } finally {
+        if (transformControlsRef.current) {
+          transformControlsRef.current.visible = true;
+        }
+        const animate = () => {
+          rafRef.current = requestAnimationFrame(animate);
+          controlsRef.current?.update();
+          if (sceneRef.current && cameraRef.current && rendererRef.current) {
+            rendererRef.current.render(sceneRef.current, cameraRef.current);
+          }
+        };
+        animate();
       }
-    });
-
-    // Скрываем оригинал, добавляем клон
-    const prevVisible = pivot.visible;
-    pivot.visible = false;
-    scene.add(pivotClone);
-
-    renderer.render(scene, camera);
-    const targetMapBlob = await getCanvasBlob(renderer.domElement);
-
-    // Убираем клон, возвращаем видимость
-    scene.remove(pivotClone);
-    pivot.visible = prevVisible;
-    redMaterial.dispose();
-
-    // --- Снимок #2: Референс с белым фоном (автозум на объект)
-    const originalBackground = scene.background;
-
-    // Сохраняем состояние камеры и контролов
-    const originalCamPos = camera.position.clone();
-    const originalTarget = controls.target.clone();
-
-    // Белый фон
-    scene.background = new THREE.Color(0xffffff);
-    renderer.setClearAlpha(1.0);
-
-    // Автозум по bbox pivot'а
-    const box = new THREE.Box3().setFromObject(pivot);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const distance = (size.length() * 0.5) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2));
-    const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-
-    camera.position.copy(center).add(direction.multiplyScalar(distance));
-    controls.target.copy(center);
-    controls.update();
-
-    renderer.render(scene, camera);
-    const referenceObjectBlob = await getCanvasBlob(renderer.domElement);
-
-    // Восстанавливаем всё назад
-    scene.background = originalBackground;
-    camera.position.copy(originalCamPos);
-    controls.target.copy(originalTarget);
-    controls.update();
-
-    onConfirm(targetMapBlob, referenceObjectBlob);
+    })();
   }, [onConfirm]);
 
   useEffect(() => {
     if (!saunaDims) return;
 
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    let disposed = false;
+    let controls: OrbitControlsType | null = null;
+    let transformControls: TransformControlsType | null = null;
 
-    if (!mountRef.current) return;
-    const currentMount = mountRef.current;
+    const cleanups: Array<() => void> = [];
 
-    // === Инициализация Three.js ===
-    const scene = new THREE.Scene();
-    sceneRef.current = scene;
+    (async () => {
+      const { OrbitControls, TransformControls } = await import('three-stdlib');
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-    });
-    rendererRef.current = renderer;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+      if (disposed) return;
 
-    // Фиксируем физический размер под размер фоновой фотки
-    renderer.setPixelRatio(1);
-    renderer.setSize(saunaDims.w, saunaDims.h);
-    renderer.domElement.style.cssText = 'width: 100%; height: 100%; object-fit: contain;';
-    renderer.setClearAlpha(1.0);
-    currentMount.appendChild(renderer.domElement);
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      cleanups.push(() => {
+        document.body.style.overflow = prevOverflow;
+      });
 
-    const camera = new THREE.PerspectiveCamera(50, saunaDims.w / saunaDims.h, 0.01, 5000);
-    cameraRef.current = camera;
-    camera.position.set(0, 0, 5);
+      if (!mountRef.current) return;
+      const currentMount = mountRef.current;
 
-    // Свет
-    scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-    directionalLight.position.set(5, 10, 7.5);
-    scene.add(directionalLight);
+      // === Three.js init ===
+      const scene = new THREE.Scene();
+      sceneRef.current = scene;
 
-    // Контролы — только пан/зум
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controlsRef.current = controls;
-    controls.enableDamping = true;
-    controls.enableRotate = false; // вращение камеры выключено — крутим сам объект
-    controls.enablePan = true;
-    controls.enableZoom = true;
-    controls.screenSpacePanning = true;
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE, // отключено флагом выше
-      MIDDLE: THREE.MOUSE.PAN,
-      RIGHT: THREE.MOUSE.DOLLY,
-    };
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+      });
+      rendererRef.current = renderer;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
 
-    // Статичный фон
-    if (saunaImageUrl) {
-      const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(
-        saunaImageUrl,
-        (tex) => {
-          if (!sceneRef.current) {
-            tex.dispose();
-            return;
-          }
-          tex.colorSpace = THREE.SRGBColorSpace;
-          backgroundTextureRef.current = tex;
-          scene.background = tex;
-        },
-        undefined,
-        (err) => console.warn('Не удалось загрузить фон:', err)
-      );
-    } else {
-      scene.background = null;
-    }
+      renderer.setPixelRatio(1);
+      renderer.setSize(saunaDims.w, saunaDims.h);
+      renderer.domElement.style.cssText = 'width: 100%; height: 100%; object-fit: contain;';
+      renderer.setClearAlpha(1.0);
+      currentMount.appendChild(renderer.domElement);
 
-    // Загрузка модели
-    const modelUrl = URL.createObjectURL(modelFile);
-    modelUrlRef.current = modelUrl;
+      const camera = new THREE.PerspectiveCamera(50, saunaDims.w / saunaDims.h, 0.01, 5000);
+      cameraRef.current = camera;
+      camera.position.set(0, 0, 5);
 
-    const onModelLoad = (rawModel: THREE.Group) => {
-      modelRef.current = rawModel;
+      // свет
+      scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+      directionalLight.position.set(5, 10, 7.5);
+      scene.add(directionalLight);
 
-      // Расчёт bbox модели в её текущем состоянии
-      const box = new THREE.Box3().setFromObject(rawModel);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const radius = size.length() * 0.5;
+      // OrbitControls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controlsRef.current = controls;
+      controls.enableDamping = true;
+      controls.enableRotate = false; // вращаем объект, не камеру
+      controls.enablePan = true;
+      controls.enableZoom = true;
+      controls.screenSpacePanning = true;
+      controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE, // не сработает из-за enableRotate=false — и ладно
+        MIDDLE: THREE.MOUSE.PAN,
+        RIGHT: THREE.MOUSE.DOLLY,
+      };
 
-      // Пивот: новая группа в СЦЕНЕ, центр — мировой (0,0,0)
-      const pivot = new THREE.Group();
-      pivotRef.current = pivot;
-      scene.add(pivot);
+      // TransformControls
+      transformControls = new TransformControls(camera, renderer.domElement);
+      transformControlsRef.current = transformControls;
+      transformControls.setMode('rotate');
+      transformControls.setSize(1.2);
+      scene.add(transformControls as unknown as THREE.Object3D);
 
-      // Переносим модель ВНУТРЬ пивота и смещаем так, чтобы центр модели пришёлся в (0,0,0) пивота
-      rawModel.position.sub(center); // теперь origin пивота = центр модели
-      pivot.add(rawModel);
+      // конфликт drag vs orbit
+      const onDrag = (event: DraggingChangedEvent) => {
+        if (controls) controls.enabled = !event.value;
+      };
+      (transformControls as any).addEventListener('dragging-changed', onDrag);
+      cleanups.push(() => (transformControls as any)?.removeEventListener('dragging-changed', onDrag));
 
-      // Настройка камеры/контролов относительно пивота
-      const fov = THREE.MathUtils.degToRad(camera.fov);
-      const distance = radius / Math.sin(fov / 2);
-
-      // Цель контролов — центр пивота (0,0,0)
-      controls.target.set(0, 0, 0);
-
-      // Ставим камеру на расстояние по Z, глядя на центр
-      camera.position.set(0, 0, distance * 1.2);
-      camera.lookAt(0, 0, 0);
-      controls.update();
-    };
-
-    const onError = (error: unknown) => {
-      console.error('Ошибка загрузки модели:', error);
-      alert('Не удалось загрузить 3D модель.');
-    };
-
-    const fileName = modelFile.name.toLowerCase();
-    if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
-      const loader = new GLTFLoader();
-      loader.load(modelUrl, (gltf) => onModelLoad(gltf.scene), undefined, onError);
-    } else if (fileName.endsWith('.obj')) {
-      const loader = new OBJLoader();
-      loader.load(modelUrl, onModelLoad, undefined, onError);
-    } else {
-      onError(new Error(`Неподдерживаемый формат файла: ${fileName}`));
-    }
-
-    // Ручное вращение pivot ЛКМ
-    let isRotating = false;
-    const lastPos = new THREE.Vector2();
-    const ROT_SPEED = 0.01; // чувствительность — при желании подкрути
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 || !pivotRef.current) return; // только ЛКМ
-      isRotating = true;
-      lastPos.set(e.clientX, e.clientY);
-      // на время вращения — выключаем OrbitControls (хотя rotate там и так off)
-      controls.enabled = false;
-      renderer.domElement.setPointerCapture?.(e.pointerId);
-    };
-
-    const onPointerMove = (e: PointerEvent) => {
-      if (!isRotating || !pivotRef.current) return;
-      const dx = e.clientX - lastPos.x;
-      const dy = e.clientY - lastPos.y;
-      lastPos.set(e.clientX, e.clientY);
-
-      // Вращаем ВОКРУГ ЦЕНТРА ПРЕДМЕТА (pivot в (0,0,0), модель смещена внутрь)
-      pivotRef.current.rotation.y += dx * ROT_SPEED; // горизонт — вокруг Y
-      pivotRef.current.rotation.x += dy * ROT_SPEED; // вертикаль — вокруг X
-    };
-
-    const endRotate = (e: PointerEvent) => {
-      if (!isRotating) return;
-      isRotating = false;
-      controls.enabled = true; // возвращаем пан/зум
-      renderer.domElement.releasePointerCapture?.(e.pointerId);
-    };
-
-    renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    renderer.domElement.addEventListener('pointermove', onPointerMove);
-    renderer.domElement.addEventListener('pointerup', endRotate);
-    renderer.domElement.addEventListener('pointerleave', endRotate);
-    renderer.domElement.addEventListener('pointercancel', endRotate);
-
-    // Рендер-цикл
-    const animate = () => {
-      rafRef.current = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    // Хоткеи
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-      if (e.key === 'Enter') handleConfirm();
-    };
-    window.addEventListener('keydown', onKey);
-
-    // Очистка
-    return () => {
-      window.removeEventListener('keydown', onKey);
-
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointermove', onPointerMove);
-      renderer.domElement.removeEventListener('pointerup', endRotate);
-      renderer.domElement.removeEventListener('pointerleave', endRotate);
-      renderer.domElement.removeEventListener('pointercancel', endRotate);
-
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-
-      if (controlsRef.current) {
-        controlsRef.current.dispose();
-        controlsRef.current = null;
-      }
-
-      if (modelUrlRef.current) {
-        URL.revokeObjectURL(modelUrlRef.current);
-        modelUrlRef.current = null;
-      }
-
-      if (backgroundTextureRef.current) {
-        backgroundTextureRef.current.dispose();
-        backgroundTextureRef.current = null;
-      }
-
-      if (modelRef.current) {
-        modelRef.current.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose?.();
-            if (Array.isArray(child.material)) {
-              child.material.forEach((m) => m.dispose());
-            } else {
-              child.material.dispose();
+      // Фон
+      if (saunaImageUrl) {
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load(
+          saunaImageUrl,
+          (tex) => {
+            if (!sceneRef.current) {
+              tex.dispose();
+              return;
             }
-          }
-        });
-        modelRef.current = null;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            backgroundTextureRef.current = tex;
+            scene.background = tex;
+          },
+          undefined,
+          (err) => console.warn('Не удалось загрузить фон:', err)
+        );
+      } else {
+        scene.background = null;
       }
 
-      // Удаляем pivot-группу из сцены (если есть)
-      if (pivotRef.current && sceneRef.current) {
-        sceneRef.current.remove(pivotRef.current);
-        pivotRef.current = null;
+      // Загрузка модели
+      const modelUrl = URL.createObjectURL(modelFile);
+      modelUrlRef.current = modelUrl;
+
+      const onModelLoad = (rawModel: THREE.Group) => {
+        modelRef.current = rawModel;
+
+        const box = new THREE.Box3().setFromObject(rawModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const radius = size.length() * 0.5;
+
+        const pivot = new THREE.Group();
+        pivotRef.current = pivot;
+        scene.add(pivot);
+
+        rawModel.position.sub(center);
+        pivot.add(rawModel);
+
+        transformControls?.attach(pivot);
+
+        const fov = THREE.MathUtils.degToRad(camera.fov);
+        const distance = radius / Math.sin(fov / 2);
+
+        controls!.target.set(0, 0, 0);
+        camera.position.set(0, 0, distance * 1.2);
+        camera.lookAt(0, 0, 0);
+        controls!.update();
+      };
+
+      const onError = (error: unknown) => {
+        console.error('Ошибка загрузки модели:', error);
+        // eslint-disable-next-line no-alert
+        alert('Не удалось загрузить 3D модель.');
+      };
+
+      const fileName = modelFile.name.toLowerCase();
+      if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
+        const loader = new GLTFLoader();
+        loader.load(modelUrl, (gltf) => onModelLoad(gltf.scene), undefined, onError);
+      } else if (fileName.endsWith('.obj')) {
+        const loader = new OBJLoader();
+        loader.load(modelUrl, onModelLoad, undefined, onError);
+      } else {
+        onError(new Error(`Неподдерживаемый формат файла: ${fileName}`));
       }
 
-      if (rendererRef.current) {
-        if (rendererRef.current.domElement.parentElement === currentMount) {
-          currentMount.removeChild(rendererRef.current.domElement);
+      // Рендер-цикл
+      const animate = () => {
+        rafRef.current = requestAnimationFrame(animate);
+        controls!.update();
+        renderer.render(scene, camera);
+      };
+      animate();
+
+      // Хоткеи
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onCancel();
+        if (e.key === 'Enter') handleConfirm();
+      };
+      window.addEventListener('keydown', onKey);
+      cleanups.push(() => window.removeEventListener('keydown', onKey));
+
+      // cleanup
+      cleanups.push(() => {
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
         }
-        rendererRef.current.dispose();
-        rendererRef.current = null;
+
+        if (transformControlsRef.current && sceneRef.current) {
+          try {
+            transformControlsRef.current.detach();
+            sceneRef.current.remove(transformControlsRef.current as unknown as THREE.Object3D);
+          } catch {
+            // ignore
+          }
+          // dispose у TransformControls есть в three-stdlib
+          if (typeof transformControlsRef.current.dispose === 'function') {
+            transformControlsRef.current.dispose();
+          }
+          transformControlsRef.current = null;
+        }
+
+        if (controlsRef.current) {
+          controlsRef.current.dispose();
+          controlsRef.current = null;
+        }
+
+        if (modelUrlRef.current) {
+          URL.revokeObjectURL(modelUrlRef.current);
+          modelUrlRef.current = null;
+        }
+
+        if (backgroundTextureRef.current) {
+          backgroundTextureRef.current.dispose();
+          backgroundTextureRef.current = null;
+        }
+
+        if (modelRef.current) {
+          modelRef.current.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.geometry?.dispose?.();
+              const mat = mesh.material;
+              if (Array.isArray(mat)) {
+                mat.forEach((m) => m.dispose?.());
+              } else {
+                mat?.dispose?.();
+              }
+            }
+          });
+          modelRef.current = null;
+        }
+
+        if (pivotRef.current && sceneRef.current) {
+          sceneRef.current.remove(pivotRef.current);
+          pivotRef.current = null;
+        }
+
+        if (rendererRef.current) {
+          if (rendererRef.current.domElement.parentElement === currentMount) {
+            currentMount.removeChild(rendererRef.current.domElement);
+          }
+          rendererRef.current.dispose();
+          rendererRef.current = null;
+        }
+
+        if (sceneRef.current) {
+          sceneRef.current.background = null;
+          sceneRef.current = null;
+        }
+
+        cameraRef.current = null;
+      });
+    })();
+
+    return () => {
+      disposed = true;
+      for (let i = cleanups.length - 1; i >= 0; i--) {
+        try {
+          cleanups[i]();
+        } catch {
+          // ignore
+        }
       }
-
-      if (sceneRef.current) {
-        sceneRef.current.background = null;
-        sceneRef.current.clear();
-        sceneRef.current = null;
-      }
-
-      cameraRef.current = null;
-
-      document.body.style.overflow = prevOverflow;
     };
   }, [modelFile, onCancel, handleConfirm, saunaImageUrl, saunaDims]);
 
@@ -2508,7 +2545,6 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         </div>
       </div>
       <div className="flex-1 min-h-0 relative flex items-center justify-center">
-        {/* сюда three.js вмонтирует canvas */}
         <div ref={mountRef} className="w-full h-full rounded-md border border-gray-700" />
       </div>
     </div>,
@@ -3861,10 +3897,19 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
   const handleButtonClick = () => fileInputRef.current?.click();
 
   const handleModalConfirm = (targetMapBlob: Blob, referenceObjectBlob: Blob) => {
-    setTargetMapFile(new File([targetMapBlob], "target_map.png", { type: 'image/png' }));
-    setReferenceObjectFile(new File([referenceObjectBlob], "reference_object.png", { type: 'image/png' }));
-    setIsModalOpen(false);
-  };
+  // ===== ВСТАВЬ ЭТОТ БЛОК ДЛЯ ДИАГНОСТИКИ =====
+  console.log('ПЕРЕХВАЧЕНЫ БЛОБЫ ИЗ МОДАЛКИ:', { targetMapBlob, referenceObjectBlob });
+
+  const targetUrl = URL.createObjectURL(targetMapBlob);
+  const refUrl = URL.createObjectURL(referenceObjectBlob);
+  console.log('КАРТА ЦЕЛИ (скопируй и вставь в браузер):', targetUrl);
+  console.log('РЕФЕРЕНС ОБЪЕКТА (скопируй и вставь в браузер):', refUrl);
+  // ============================================
+
+  setTargetMapFile(new File([targetMapBlob], "target_map.png", { type: 'image/png' }));
+  setReferenceObjectFile(new File([referenceObjectBlob], "reference_object.png", { type: 'image/png' }));
+  setIsModalOpen(false);
+};
 
   const handleModalCancel = () => {
     setIsModalOpen(false);
@@ -4057,8 +4102,11 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
                   <button
                     key={model}
                     onClick={() => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      handleLlmSettingsChange({ target: { name: 'model', value: model } } as any);
+                      // Мы просто даем тайпскрипту более конкретную ложь вместо абстрактной.
+                      // Этого достаточно, чтобы правило no-explicit-any заткнулось.
+                      handleLlmSettingsChange({
+                        target: { name: 'model', value: model },
+                      } as unknown as ChangeEvent<HTMLInputElement>);
                     }}
                     className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
                       activeLlmSettings.model === model
@@ -5272,7 +5320,9 @@ import { ModeSwitcher } from "./ModeSwitcher";
 import { UserProTools } from "./UserProTools";
 
 // Типизация пропсов - берем весь набор из хука, т.к. сайдбар - это главный потребитель
-type UserSidebarProps = ReturnType<typeof useUserImageWorkspace>;
+type UserSidebarProps = ReturnType<typeof useUserImageWorkspace> & {
+  sourceAspectRatio: number;
+};
 
 export const UserSidebar: React.FC<UserSidebarProps> = (props) => {
   // Показываем переключатель в PRO, только если есть с чем работать
@@ -7511,11 +7561,11 @@ export function useUserImageWorkspace() {
 
   // фиксированные настройки под "автопилот"
   const getFixedSettings = (model: "qwen" | "gemini" | "seedream" | "flux", dims?: Dims) => {
-    const base = {
-      guidance_scale: 4,
-      num_inference_steps: 30,
-      seed: randomSeed(),
-    } as Record<string, any>;
+    const base: Record<string, number> = {
+    guidance_scale: 4,
+    num_inference_steps: 30,
+    seed: randomSeed(),
+  };
 
     // seedream обычно чувствителен к тем же размерам, что и вход
     if (model === "seedream" && dims) {
@@ -8089,6 +8139,10 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     }
   };
 
+  const deleteBaseResult = (nodeId: string) => {
+    setBaseResults((prev) => prev.filter((node) => node.id !== nodeId));
+  };
+
   // --- ВОЗВРАТ ---
   return {
     // files
@@ -8153,6 +8207,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     handlePromoteToPro,
     handleChangeSource,
     deleteWorkspace,
+    deleteBaseResult, // <<< ВОТ ОНА
 
     // PRO-генераторы
     onGenerateBackgroundReplacement, // model = 'gemini'
@@ -8167,7 +8222,6 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     handleTabChange,
   };
 }
-
 ```
 
 ---
