@@ -59,7 +59,7 @@ type MeResponse =
       accountId: string | null;
     };
 
-/* ---------------- helpers (typed, no any) ---------------- */
+/* ---------------- helpers ---------------- */
 
 function debounce<A extends unknown[], R>(
   fn: (...args: A) => R,
@@ -219,78 +219,26 @@ export function useImageWorkspace() {
     let cancelled = false;
     if (!sourceFile) {
       setSourcePersistUrl(null);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (!isAuthed) {
-      // not logged in yet → keep it local for now
       setSourcePersistUrl(null);
       setCompareSourceUrl(sourceDataUrl ?? null);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-<<<<<<< HEAD
-    // Остальные настройки грузим как обычно
-    setBaseResults(p.baseResults ?? []);
-    setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
-    setPrompt(p.prompt ?? "");
-    setNegativePrompt(p.negativePrompt ?? "blurry, ugly, deformed, text, watermark");
-    if (p.selectedModel) settingsManager.setSelectedModel(p.selectedModel);
-    if (p.qwenSettings) settingsManager.setQwenSettings(p.qwenSettings);
-    if (p.fluxSettings) settingsManager.setFluxSettings(p.fluxSettings);
-    if (p.seedreamSettings) settingsManager.setSeedreamSettings(p.seedreamSettings);
-    if (p.llmSettingsByModel) {
-  // Создаем новый объект настроек, чтобы не мусорить
-  const mergedSettings = { ...initialLlmSettingsByModel };
-
-  // Проходим по всем моделям, которые у нас в принципе есть
-  (Object.keys(mergedSettings) as Model[]).forEach(modelKey => {
-    const persistedModelSettings = p.llmSettingsByModel?.[modelKey] ?? {};
-    
-    // Собираем итоговые настройки для модели:
-    // 1. Берем дефолты (на всякий случай).
-    // 2. Накатываем сверху сохраненные юзером (его температура, топ-п).
-    // 3. ПРИНУДИТЕЛЬНО втыкаем наш каноничный системный промпт.
-    mergedSettings[modelKey] = {
-      ...defaultLlmSettings,
-      ...persistedModelSettings,
-      systemPrompt: LLM_SYSTEM_PROMPT, // Вот он, гвоздь программы
-    };
-  });
-  
-  setLlmSettingsByModel(mergedSettings);
-}
-    if (typeof p.sendImageToLlm === "boolean") setSendImageToLlm(p.sendImageToLlm);
-    if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
-    if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
-    if (typeof p.seedLock === "boolean") settingsManager.setSeedLock(p.seedLock);
-    if (typeof p.comparePos === "number") setComparePos(p.comparePos);
-    if (p.seedreamTargetSize) settingsManager.setSeedreamTargetSize(p.seedreamTargetSize);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-=======
-    
-    // (async () => {
-    //   try {
-    //     const fd = new FormData();
-    //     fd.append("file", sourceFile);
-    //     const res = await fetch("/api/files/upload", { method: "POST", body: fd });
-    //     if (!res.ok) return;
-    //     const j = (await res.json()) as unknown as { url: string };
-    //     if (!cancelled) {
-    //       setSourcePersistUrl(j.url);
-    //       setCompareSourceUrl(j.url);
-    //     }
-    //   } catch {
-    //     /* ignore; local-only flow will still work */
-    //   }
-    // })();
     (async () => {
       try {
         const fd = new FormData();
         fd.append("file", sourceFile);
         const res = await fetch("/api/files/upload", { method: "POST", body: fd });
         const j = await res.json();
-  
+
         if (!res.ok) {
           console.error("Upload failed:", j);
           return;
@@ -303,13 +251,12 @@ export function useImageWorkspace() {
         console.error("Upload error:", err);
       }
     })();
->>>>>>> upstream/test-merge
 
     return () => {
       cancelled = true;
     };
-//  }, [sourceFile]);
-}, [sourceFile, isAuthed, sourceDataUrl]);
+  }, [sourceFile, isAuthed, sourceDataUrl]);
+
   /* ======================= Server-first restore (fallback local) ======================= */
   useEffect(() => {
     let cancelled = false;
@@ -351,19 +298,17 @@ export function useImageWorkspace() {
             setSelectedBaseResultUrl(saved.selectedBaseResultUrl ?? null);
             setActiveNodeId(saved.activeNodeId ?? null);
 
-            // Source image URL for CompareView after reload
             setSourcePersistUrl(saved.sourceUrl ?? null);
             if (saved.sourceUrl) setCompareSourceUrl(saved.sourceUrl);
-            return; // server restore complete
+            return;
           }
         }
 
-        /* -------- Local fallback (typed, no any) -------- */
+        /* -------- Local fallback -------- */
         const raw = loadPersist();
         if (!raw || !isObject(raw)) return;
         const p = raw as Partial<PersistState>;
 
-        // Workspaces & selection
         const loadedWorkspaces =
           (p.workspaces as unknown as Record<string, GenerationNode[]>) ?? {};
         const loadedActiveWorkspaceId = p.activeWorkspaceId ?? null;
@@ -391,9 +336,7 @@ export function useImageWorkspace() {
         setActiveNodeId(finalActiveNodeId);
         setActiveTab(finalActiveTab);
 
-        setBaseResults(
-          (p.baseResults as unknown as GenerationNode[]) ?? []
-        );
+        setBaseResults((p.baseResults as unknown as GenerationNode[]) ?? []);
         setSelectedBaseResultUrl(p.selectedBaseResultUrl ?? null);
         setPrompt(p.prompt ?? "");
         setNegativePrompt(
@@ -405,7 +348,6 @@ export function useImageWorkspace() {
           setCompareSourceUrl(p.sourcePersistUrl);
         }
 
-        // Restore settings with precise types
         const selModel = p.selectedModel as Model | undefined;
         if (selModel) settingsManager.setSelectedModel(selModel);
         if (p.qwenSettings) {
@@ -424,17 +366,13 @@ export function useImageWorkspace() {
           );
         }
         if (p.llmSettingsByModel) {
-          setLlmSettingsByModel(
-            p.llmSettingsByModel as typeof llmSettingsByModel
-          );
+          setLlmSettingsByModel(p.llmSettingsByModel as typeof llmSettingsByModel);
         }
         if (typeof p.sendImageToLlm === "boolean")
           setSendImageToLlm(p.sendImageToLlm);
-        if (typeof p.showRefiner === "boolean")
-          setShowRefiner(p.showRefiner);
+        if (typeof p.showRefiner === "boolean") setShowRefiner(p.showRefiner);
         if (typeof p.showNeg === "boolean") setShowNeg(p.showNeg);
-        if (typeof p.seedLock === "boolean")
-          settingsManager.setSeedLock(p.seedLock);
+        if (typeof p.seedLock === "boolean") settingsManager.setSeedLock(p.seedLock);
         if (typeof p.comparePos === "number") setComparePos(p.comparePos);
         if (p.seedreamTargetSize) {
           settingsManager.setSeedreamTargetSize(
@@ -508,7 +446,6 @@ export function useImageWorkspace() {
     if (isAuthed) {
       saveServerDebounced(snapshot);
     } else {
-      // Local persist (typed)
       const payload: PersistState = {
         prompt,
         negativePrompt,
@@ -531,7 +468,7 @@ export function useImageWorkspace() {
         seedLock: settingsManager.seedLock,
         seedreamTargetSize: settingsManager.seedreamTargetSize,
         tab: "compare",
-        sourcePersistUrl, // NEW
+        sourcePersistUrl,
       };
       savePersist(payload);
     }
@@ -665,9 +602,9 @@ Crucially:
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    let prompt = `Place the object from the reference image into the solid red area on the main image. For a seamless integration, you MUST adapt the object to the scene by perfectly matching its lighting, shadows, and PERSPECTIVE. You are permitted to slightly alter the object's original angle if it's necessary to achieve photorealism and correct alignment with the scene's geometry. CRITICAL INSTRUCTION: The red area is a placement marker ONLY. It MUST be completely removed and invisible in the final image.`;
+    let promptText = `Place the object from the reference image into the solid red area on the main image. For a seamless integration, you MUST adapt the object to the scene by perfectly matching its lighting, shadows, and PERSPECTIVE. You are permitted to slightly alter the object's original angle if it's necessary to achieve photorealism and correct alignment with the scene's geometry. CRITICAL INSTRUCTION: The red area is a placement marker ONLY. It MUST be completely removed and invisible in the final image.`;
     if (helperPrompt.trim()) {
-      prompt += ` An additional user hint is: "${helperPrompt.trim()}".`;
+      promptText += ` An additional user hint is: "${helperPrompt.trim()}".`;
     }
     
     settingsManager.updateSeedForGeneration();
@@ -676,7 +613,7 @@ Crucially:
     const formData = new FormData();
     formData.append("image", targetMapFile);
     formData.append("reference_image", referenceObjectFile);
-    formData.append("prompt", prompt);
+    formData.append("prompt", promptText);
    
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
@@ -688,7 +625,7 @@ Crucially:
         parentId: activeNodeId,
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
-        prompt,
+        prompt: promptText,
         negativePrompt: '', 
         model,
         settings,
@@ -729,45 +666,24 @@ Crucially:
     setError(null);
     abortControllerRef.current = new AbortController();
 
-<<<<<<< HEAD
-    let prompt: string;
-      const userClarification = helperPrompts.style.trim();
+    // (Пациент №1): строго promptText
+    let promptText: string;
+    const userClarification = helperPrompts.style.trim();
 
-      if (referenceFile) {
-          // Твой промт, но в виде четкого приказа
-          const basePrompt = `Redraw the source image (image 1), adhering to two strict rules:
+    if (referenceFile) {
+      const basePrompt = `Redraw the source image (image 1), adhering to two strict rules:
 1.  **PRESERVE:** You must preserve ONLY the geometry and composition of the source image.
 2.  **TRANSFER:** You must transfer the style from the reference image (image 2) down to the smallest detail, including its exact color palette, lighting scheme, and surface textures.`;
-          prompt = userClarification ? `${basePrompt}\nAdditional user hint: "${userClarification}".` : basePrompt;
-
-      } else if (userClarification) {
-          // Та же логика для текстового описания
-          prompt = `Redraw the source image to perfectly match the following style: "${userClarification}".
+      promptText = userClarification
+        ? `${basePrompt}\nAdditional user hint: "${userClarification}".`
+        : basePrompt;
+    } else if (userClarification) {
+      promptText = `Redraw the source image to perfectly match the following style: "${userClarification}".
 CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. The final result must match the described style down to the smallest detail in terms of color, lighting, and texture.`;
-
-      } else {
-          return fail("Не указан ни файл-референс, ни текстовое описание фона.");
-      }
-    // Превращаем URL активной сауны в файл для отправки
-=======
-    const userClarification = helperPrompts.style.trim();
-    if (!referenceFile && !userClarification)
+    } else {
       return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+    }
 
-    const promptText = referenceFile
-      ? (() => {
-          const base = `Redraw the **source image** to match the artistic style of the **reference image**.
-**CRITICAL:**
-1. Preserve the exact geometry, object placement, and composition of the **source image**.
-2. Transfer the complete style from the **reference image**, including its color palette, lighting, and textures.
-3. Do not mix the *content* or objects of the two images. The final output must be the content of the source, rendered in the style of the reference.`;
-          return userClarification
-            ? `${base} A user has provided this clarification: "${userClarification}".`
-            : base;
-        })()
-      : `Redraw the source image in the following artistic style: "${userClarification}". Strictly preserve the geometry, proportions, and object layout of the source image. Do not change the content, only the style.`;
-
->>>>>>> upstream/test-merge
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -845,30 +761,21 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     const promptTarget = areas.join(" and ");
     if (!promptTarget) return fail("Не выбраны цели для замены фона.");
 
-<<<<<<< HEAD
-        if (referenceFile) {
-    const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
-        prompt = userClarification ? `${basePrompt} User clarification: "${userClarification}".` : basePrompt;
-    } else if (userClarification) {
-        prompt = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
-    } else {
-        return fail("Не указан ни файл-референс, ни текстовое описание фона.");
-    }
-=======
+    // (Пациент №2): замена блока на явный promptText
+    let promptText: string;
     const userClarification = helperPrompts.background.trim();
-    if (!referenceFile && !userClarification)
+
+    if (referenceFile) {
+      const basePrompt = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. The new background must be organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+      promptText = userClarification
+        ? `${basePrompt} User clarification: "${userClarification}".`
+        : basePrompt;
+    } else if (userClarification) {
+      promptText = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
+    } else {
       return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+    }
 
-    const promptText = referenceFile
-      ? (() => {
-          const base = `In the source image, replace the background seen through ${promptTarget} with the scene from the reference image. Preserve the original sauna and its geometry. Do not improvise.`;
-          return userClarification
-            ? `${base} A user has provided this clarification: "${userClarification}".`
-            : base;
-        })()
-      : `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Preserve the original sauna and its geometry, making the new background look photorealistic.`;
-
->>>>>>> upstream/test-merge
     let sourceImageFile: File;
     try {
       const response = await fetch(activeNode.imageUrl);
@@ -1002,36 +909,31 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     setError(null);
     abortControllerRef.current = new AbortController();
 
+    // (Пациент №3) — оставляем ТОЛЬКО этот блок
+    // 1) Карту правок превращаем в файл
     const imageFile = new File([imageBlob], "arrow_edit_map.png", {
       type: "image/png",
     });
-    const promptText = `Apply the edits indicated by the red arrows and text annotations on the image. The text next to each arrow is the instruction for that specific location. Here are the instructions again for clarity: [${instructionsText}]. Remove all arrows and text annotations from the final result.`;
 
-<<<<<<< HEAD
-    // 1. Создаем ФАЙЛ из BLOB'а, который пришел из редактора.
-    //    Это и есть наша картинка со стрелками.
-    const imageFile = new File([imageBlob], 'arrow_edit_map.png', { type: 'image/png' });
+    // 2) Промт с нумерацией
+    const instructionsArray = instructionsText
+      .split(",")
+      .map((instr) => instr.trim())
+      .filter((instr) => instr.length > 0);
 
-    // 2. Собираем промпт, как и договаривались.
-    // 2. 🔥 Собираем новый, ультимативный промпт под SeeDream 🔥
-    // Разбиваем инструкции из "сделай то, сделай это" в массив ["сделай то", "сделай это"]
-    const instructionsArray = instructionsText.split(',').map(instr => instr.trim()).filter(instr => instr.length > 0);
+    const formattedInstructions = instructionsArray
+      .map((instr, index) => `${index + 1}. ${instr}`)
+      .join("\n");
 
-    // Собираем нумерованный список приказов
-    const formattedInstructions = instructionsArray.map((instr, index) => `${index + 1}. ${instr}`).join('\n');
+    const promptText = `Execute the following numbered instructions at the locations indicated by the corresponding red arrows.
 
-    const prompt = `Execute the following numbered instructions at the locations indicated by the corresponding red arrows.
+Instructions:
+${formattedInstructions}
 
-    Instructions:
-    ${formattedInstructions}
+CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and text annotations from the final image. The output should be a clean photograph.`;
 
-    CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and text annotations from the final image. The output should be a clean photograph.`;
-
-    // 3. (ФИКС РАЗМЕРОВ SEEDREAM) Получаем реальные размеры ТЕКУЩЕЙ ноды, а не первого скетча.
-    const getDimsFromUrl = (url: string): Promise<{ w: number, h: number }> =>
-=======
+    // 3) Фикс размеров Seedream/и т.п.
     const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
->>>>>>> upstream/test-merge
       new Promise((res, rej) => {
         const img = new Image();
         img.crossOrigin = "anonymous";
@@ -1065,8 +967,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
         prompt: promptText,
-        negativePrompt:
-          "text, annotations, arrows, indicators, pointers",
+        negativePrompt: "text, annotations, arrows, indicators, pointers",
         model,
         settings,
       };
@@ -1118,9 +1019,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     let base64Image: string | undefined = undefined;
     if (sendImageToLlm && sourceFile) {
       const buffer = await sourceFile.arrayBuffer();
-      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(
-        buffer
-      )}`;
+      base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
     }
 
     const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
@@ -1201,7 +1100,6 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
         id: genId(),
         parentId,
         imageUrl: data.imageUrl,
-        // Prefer persistent original URL; fallback to data URL for BASE
         sourceImageUrl:
           activeTab === "BASE"
             ? sourcePersistUrl ?? sourceDataUrl
