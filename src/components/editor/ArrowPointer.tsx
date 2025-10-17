@@ -116,17 +116,35 @@ export const ArrowPointer: React.FC<{
     // 1) Бэкграунд: исходник
     ctx.drawImage(img, 0, 0);
 
-    // 2) Стрелка (корректно масштабируем относительно внутреннего размера)
+    // 2) Стрелка (с коррекцией смещения и масштаба)
     const canvas = canvasRef.current!;
-    const scaleFactor = img.width / canvas.width; // соотн. экран/оригинал
+    const parent = canvas.parentElement!;
+    const canvasRect = canvas.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+
+    // Вычисляем реальные отступы холста внутри родительского контейнера
+    const offsetX = canvasRect.left - parentRect.left;
+    const offsetY = canvasRect.top - parentRect.top;
+    
+    // Вычисляем масштабный коэффициент
+    const scaleX = img.width / canvasRect.width;
+    const scaleY = img.height / canvasRect.height;
+
+    // Корректируем координаты: (экранная позиция - отступ) * масштаб
+    const finalX = (arrowPos.x - offsetX) * scaleX;
+    const finalY = (arrowPos.y - offsetY) * scaleY;
 
     ctx.save();
     // Центр стрелки в координатах исходника
-    ctx.translate(arrowPos.x * scaleFactor, arrowPos.y * scaleFactor);
+    ctx.translate(finalX, finalY);
     ctx.rotate((arrowRotation * Math.PI) / 180);
 
+    // viewBox 150x90 -> масштаб относительно ширины 150 (используем scaleX)
+    // Вычисляем средний скейл, чтобы избежать искажения пропорций
+    const avgScale = (scaleX + scaleY) / 2;
+
     // viewBox 150x90 -> масштаб относительно ширины 150
-    const arrowRenderSize = arrowSize * scaleFactor;
+    const arrowRenderSize = arrowSize * avgScale;
     const pathScale = arrowRenderSize / 150;
     ctx.scale(pathScale, pathScale);
 

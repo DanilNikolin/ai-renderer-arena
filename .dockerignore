@@ -1,0 +1,11 @@
+# Выкидываем весь мусор, который не должен попасть в сборку
+node_modules
+.next
+.git
+.vscode
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.env.local
+.DS_Store

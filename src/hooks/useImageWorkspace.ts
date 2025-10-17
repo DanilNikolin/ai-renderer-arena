@@ -1109,16 +1109,60 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
         model: settingsManager.selectedModel,
         settings,
       };
+
       if (activeTab === "BASE") {
-        setBaseResults((prev) => [...prev, newNode]);
+        // <<< 1. Создаем новый массив с результатом
+        const newBaseResults = [...baseResults, newNode];
+        setBaseResults(newBaseResults);
+        
+        // <<< 2. Сразу после успеха принудительно сохраняем состояние на сервер
+        if (isAuthed) {
+          const freshSnapshot: WorkspaceStateDTO = {
+            ...snapshot,
+            baseResults: newBaseResults.map(n => ({ id: n.id, imageUrl: n.imageUrl, parentId: n.parentId ?? null })),
+            selectedBaseResultUrl: newNode.imageUrl,
+          };
+          // Отправляем без задержек
+          fetch("/api/workspace/state", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ state: freshSnapshot }),
+          });
+        }
+        
         setSelectedBaseResultUrl(newNode.imageUrl);
         setCompareSourceUrl(newNode.sourceImageUrl);
-      } else {
+
+      } else { // Для PRO-режима
         if (!activeWorkspaceId) return fail("Критическая ошибка: нет воркспейса.");
-        setWorkspaces((prev) => ({
-          ...prev,
-          [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
-        }));
+        
+        // <<< 1. Создаем новый объект воркспейсов
+        const newWorkspaces = {
+          ...workspaces,
+          [activeWorkspaceId]: [...(workspaces[activeWorkspaceId] ?? []), newNode],
+        };
+        setWorkspaces(newWorkspaces);
+
+        // <<< 2. И здесь тоже принудительно сохраняем
+        if (isAuthed) {
+          const freshSnapshot: WorkspaceStateDTO = {
+            ...snapshot,
+            workspaces: Object.fromEntries(
+              Object.entries(newWorkspaces).map(([root, list]) => [
+                root,
+                list.map(n => ({ id: n.id, imageUrl: n.imageUrl, parentId: n.parentId ?? null })),
+              ])
+            ),
+            activeNodeId: newNode.id,
+          };
+          // Отправляем без задержек
+          fetch("/api/workspace/state", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ state: freshSnapshot }),
+          });
+        }
+        
         setActiveNodeId(newNode.id);
       }
     } catch (e) {

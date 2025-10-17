@@ -209,21 +209,31 @@ export const MultiArrowEditor: React.FC<{
     ctx.drawImage(img, 0, 0);
 
     // scale факторы между экранным canvas и исходником
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = img.width / rect.width;
-    const scaleY = img.height / rect.height;
+    // Вычисляем смещения и масштабы ОДИН РАЗ перед циклом
+    const canvas = canvasRef.current;
+    const parent = canvas.parentElement!;
+    const canvasRect = canvas.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+
+    const offsetX = canvasRect.left - parentRect.left;
+    const offsetY = canvasRect.top - parentRect.top;
+
+    const scaleX = img.width / canvasRect.width;
+    const scaleY = img.height / canvasRect.height;
 
     const instructions: string[] = [];
 
     arrows.forEach((arrow) => {
       if (arrow.text.trim()) instructions.push(arrow.text.trim());
 
-      // экранные координаты → координаты исходника
-      const realX = arrow.x * scaleX;
-      const realY = arrow.y * scaleY;
+      // ПРАВИЛЬНЫЙ РАСЧЕТ: (экранная позиция - отступ) * масштаб
+      const realX = (arrow.x - offsetX) * scaleX;
+      const realY = (arrow.y - offsetY) * scaleY;
 
       // size масштабируем по X (viewBox по ширине 150)
-      const realSize = arrow.size * scaleX;
+      // Вычисляем средний скейл для этой стрелки
+      const avgScale = (scaleX + scaleY) / 2;
+      const realSize = arrow.size * avgScale;
 
       // Стрелка
       ctx.save();
