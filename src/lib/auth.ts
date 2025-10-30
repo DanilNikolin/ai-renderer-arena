@@ -1,6 +1,7 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import argon2 from "argon2";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 type Mode = "local_dev" | "prod";
 type Typ = "access" | "refresh";
@@ -51,4 +52,25 @@ export function clearAuthCookiesOn(res: NextResponse): NextResponse {
   res.cookies.set({ name: "acc", value: "", ...base });
   res.cookies.set({ name: "ref", value: "", ...base });
   return res;
+}
+
+/** Прочитать access-cookie, провалидировать JWT и вернуть { sub } либо null. */
+export async function requireAuth(): Promise<{ sub: string } | null> {
+  try {
+    // ВАЖНО: cookies() теперь async
+    const cookieStore = await cookies();
+    const acc = cookieStore.get("acc")?.value;
+    if (!acc) return null;
+
+    const decoded = jwt.verify(acc, ACCESS_SECRET) as AuthClaims;
+
+    if (decoded.typ !== "access") return null;
+
+    const sub = decoded.sub ?? decoded.pid; // fallback, если sub не пишешь
+    if (!sub) return null;
+
+    return { sub: String(sub) };
+  } catch {
+    return null;
+  }
 }

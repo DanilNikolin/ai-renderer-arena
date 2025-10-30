@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-// Если используешь типизацию сообщений с мультимодальностью:
+// Типы для мультимодальных сообщений
 type TextPart = { type: "text"; text: string };
 type ImagePart = { type: "image_url"; image_url: { url: string } };
 type ChatMsg =
@@ -10,6 +10,7 @@ type ChatMsg =
   | { role: "user"; content: (TextPart | ImagePart)[] }
   | { role: "assistant"; content: string };
 
+// Тип ожидаемого тела запроса
 type RefineBody = {
   prompt?: string;
   system?: string;               // системка
@@ -20,6 +21,7 @@ type RefineBody = {
   image?: string | null;         // data:image/...;base64,xxxx
 };
 
+// Хелпер для парсинга чисел из строки/числа
 function num(val: unknown): number | undefined {
   if (val === null || val === undefined) return undefined;
   if (typeof val === "number") return Number.isFinite(val) ? val : undefined;
@@ -41,12 +43,13 @@ export async function POST(req: Request) {
       );
     }
 
+    // Инициализируем клиент OpenAI SDK
     const client = new OpenAI({
       apiKey,
       baseURL: process.env.OPENAI_BASE_URL || undefined,
     });
 
-    // ---- читаем JSON тело ----
+    // ---- Читаем JSON тело запроса ----
     const body = (await req.json()) as RefineBody;
 
     const prompt = (body.prompt ?? "").trim();
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
     const model = (body.model && body.model.trim()) || "gpt-5-mini";
     const temperature = num(body.temperature);
     const top_p = num(body.top_p);
-    const max_completion_tokens = num(body.max_completion_tokens) ?? 200;
+    const max_completion_tokens = num(body.max_completion_tokens) ?? 2000; // Увеличили дефолт до 2000
     const image = (body.image ?? "").trim() || null;
 
     if (!prompt) {
@@ -64,10 +67,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // ---- собираем мультимодальные messages ----
+    // ---- Собираем мультимодальные messages ----
     const userParts: (TextPart | ImagePart)[] = [{ type: "text", text: prompt }];
     if (image) {
-      // ожидаем data:URL или https URL
+      // Ожидаем data:URL или https URL
       userParts.push({ type: "image_url", image_url: { url: image } });
     }
 
@@ -75,7 +78,7 @@ export async function POST(req: Request) {
     if (system) messages.push({ role: "system", content: system });
     messages.push({ role: "user", content: userParts });
 
-    // ---- вызов Chat Completions под GPT-5 ----
+    // ---- Вызов Chat Completions через SDK ----
     const resp = await client.chat.completions.create({
       model,
       messages,
@@ -88,6 +91,7 @@ export async function POST(req: Request) {
     const finishReason = choice?.finish_reason ?? "unknown";
     const refinedPrompt = choice?.message?.content?.trim() || "";
 
+    // Проверяем, что ответ не пустой
     if (refinedPrompt) {
       return NextResponse.json({
         refinedPrompt,
@@ -96,18 +100,30 @@ export async function POST(req: Request) {
       });
     }
 
-    // если пусто — лог и понятная 502
+    // Если ответ пустой, логируем и возвращаем ошибку 502
     console.error("OpenAI empty response:", JSON.stringify(resp, null, 2));
+    // Добавляем finish_reason в сообщение об ошибке для ясности
     return NextResponse.json(
       { error: `OpenAI не вернула текст. Причина завершения: '${finishReason}'.` },
       { status: 502 }
     );
-  } catch (err: unknown) { // <<< ИСПРАВЛЕНО
+
+  } catch (err: unknown) {
     console.error("refine-prompt error:", err);
-    const message = err instanceof Error ? err.message : "Неизвестная ошибка";
+    // Пытаемся извлечь сообщение об ошибке из объекта ошибки OpenAI API
+    let message = "Неизвестная ошибка";
+    if (err instanceof Error) {
+      message = err.message;
+      // Если это ошибка от OpenAI API, она может содержать больше деталей
+      if ('status' in err && 'error' in err && typeof err.error === 'object' && err.error && 'message' in err.error) {
+        message = (err.error as { message: string }).message;
+      }
+    }
+
     return NextResponse.json(
       { error: message },
-      { status: 500 }
+      // Используем статус ошибки от OpenAI API, если он есть, иначе 500
+      { status: (typeof err === 'object' && err && 'status' in err && typeof err.status === 'number') ? err.status : 500 }
     );
   }
 }

@@ -138,7 +138,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           <button
             type="button"
             onClick={() => setIsBgReplacerOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+            className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+            disabled={!props.activeNode}
           >
             {isBgReplacerOpen ? '▼' : '►'} Замена Фона
           </button>
@@ -158,10 +159,11 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
         {/* Замена Текстуры */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-            type="button"
-            onClick={() => setIsTextureTransplanterOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
-          >
+              type="button"
+              onClick={() => setIsTextureTransplanterOpen((v) => !v)}
+              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+              disabled={!props.activeNode}
+            >
             {isTextureTransplanterOpen ? '▼' : '►'} Замена Текстуры
           </button>
           {isTextureTransplanterOpen && (
@@ -181,10 +183,11 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
         {/* Замена Стиля */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-            type="button"
-            onClick={() => setIsStyleTransplanterOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
-          >
+              type="button"
+              onClick={() => setIsStyleTransplanterOpen((v) => !v)}
+              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+              disabled={!props.activeNode}
+            >
             {isStyleTransplanterOpen ? '▼' : '►'} Замена Стиля
           </button>
           {isStyleTransplanterOpen && (
@@ -205,7 +208,8 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           <button
             type="button"
             onClick={() => setIsObjectInjectorOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
+            className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+            disabled={!props.activeNode}
           >
             {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта (2D)
           </button>
@@ -227,8 +231,9 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
         <div className="bg-gray-900/50 border border-purple-800/50 rounded-lg">
           <button
             type="button"
-            onClick={() => setIsObjectInjector3DOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-purple-400 p-3"
+            onClick={() => setIsObjectInjector3DOpen((v) => !v)} // <<< ПОЧИНЕНО
+            className="w-full text-left text-sm font-medium text-purple-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3" // <<< ЦВЕТ ТОЖЕ
+            disabled={!props.activeNode}
           >
             {isObjectInjector3DOpen ? '▼' : '►'} Интеграция Объекта (3D)
           </button>
@@ -245,10 +250,11 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
         {/* Редактор по Стрелкам — сворачиваемая секция */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-            type="button"
-            onClick={() => setIsArrowSectionOpen((v) => !v)}
-            className="w-full text-left text-sm font-medium text-cyan-400 p-3"
-          >
+              type="button"
+              onClick={() => setIsArrowSectionOpen((v) => !v)}
+              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+              disabled={!props.activeNode}
+            >
             {isArrowSectionOpen ? '▼' : '►'} Редактор по Стрелкам
           </button>
 

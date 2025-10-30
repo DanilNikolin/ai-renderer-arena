@@ -1,6 +1,7 @@
 // src/app/api/generate/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { saveImage } from "../../../lib/storage"; // keep relative import
+import { getImageSizeFromBuffer } from "@/lib/image.server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Отсутствуют обязательные поля" }, { status: 400 });
     }
 
+    const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
+    const detectedSize = await getImageSizeFromBuffer(imageBuffer);
+
+    if (!detectedSize) {
+        return NextResponse.json({ error: "Не удалось прочитать размеры изображения" }, { status: 400 });
+    }
+
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
     const body: FalRequestBody = { prompt };
     if (negativePrompt) body.negative_prompt = negativePrompt;
@@ -88,7 +96,16 @@ export async function POST(req: NextRequest) {
           : "https://fal.run/fal-ai/flux-pro/kontext";
         body.image_url = await fileToDataUrl(imageFile);
         if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (model === "qwen" && settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        if (model === "qwen") {
+          if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+          // Жестко прокидываем размер, чтобы Qwen не ресайзил
+          body.image_size = {
+              width: detectedSize.width,
+              height: detectedSize.height,
+          };
+        }
+       
+
         if (model === "flux" && settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
         if (settings.seed != null) body.seed = settings.seed;
         break;
