@@ -468,11 +468,11 @@ export async function POST(req: NextRequest) {
       const insertRes = await query(
         `INSERT INTO external_request_audit
           (api_key_hash, api_key_label, client_ip, user_agent,
-           model, guidance_scale, num_steps, seed_used,
-           prompt_raw, window_view, door_view, image_input_url, original_saved_url, negative_prompt,
-           status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'processing')
-         RETURNING id`,
+          model, guidance_scale, num_steps, seed_used,
+          prompt_raw, window_view, door_view, image_input_url, original_saved_url, negative_prompt,
+          status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'processing')
+        RETURNING id`,
         [
           apiKeyHash,
           apiKeyLabel,
@@ -488,12 +488,14 @@ export async function POST(req: NextRequest) {
           imgInputUrl,
           originalSavedUrl || null,
           bodyJSON.negative_prompt || null,
-        ],
+        ]
       );
-
       auditId = extractReturningId(insertRes);
-    } catch {
-      // ignore audit insert failure
+      // Если дошли сюда - пишем в лог, что всё ОК
+      console.log(`[external/generate] Audit insert OK, id: ${auditId}`);
+    } catch (auditError: unknown) { // <<< ТЕПЕРЬ ЛОВИМ И ЛОГГИРУЕМ
+      console.error("[external/generate] FAILED TO INSERT AUDIT RECORD:", auditError);
+      // ignore audit insert failure, но теперь мы видим причину в логах
     }
 
     // ---- Step 1: ask GPT to produce the template prompt ----
