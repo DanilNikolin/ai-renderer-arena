@@ -233,8 +233,8 @@ export async function POST(req: NextRequest) {
     let incomingImageAsDataUrl: string | undefined;
 
     // Defaults for optional hints (window/door view)
-    let windowView = "a dense Scandinavian forest";
-    let doorView = "a cozy antechamber (changing room)";
+    let windowView = "Green summer forest, photorealism, high detail|snow-covered winter forest, photorealism, high detail|a majestic view of the snow-capped Alpine mountains under a clear blue sky,photorealism, high detail|a neat suburban backyard in summer with a manicured green lawn and a wooden fence,photorealism, high detail|a suburban backyard in winter, covered in a fresh blanket of snow,photorealism, high detail|the lake, photorealism, high detail";
+    let doorView = "cozy entrance hall (changing room) with bath towels";
 
     /* ---------- A) multipart/form-data (image file upload) ---------- */
     if (contentType.includes("multipart/form-data")) {
@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
       // bodyJSON.negative_prompt = (form.get("negative_prompt") as string | null) || undefined;
       bodyJSON.negative_prompt =
         (form.get("negative_prompt") as string | null) ||
-        "blurry, ugly, deformed, text, watermark";
+        "blurry, ugly, deformed, text, watermark, toilet, toilet bowl, urinal";
       bodyJSON.seed = form.get("seed") ? Number(form.get("seed")) : undefined;
       bodyJSON.guidance_scale = form.get("guidance_scale")
         ? Number(form.get("guidance_scale"))
@@ -457,7 +457,14 @@ export async function POST(req: NextRequest) {
       ""
     ).trim();
 
-    const augmentedText = `${userText}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
+    // 'windowView' variable already holds the default list or user input
+    let selectedWindowView = windowView; 
+    if (windowView.includes('|')) {
+      const options = windowView.split('|').filter(s => s.trim().length > 0);
+      selectedWindowView = options[Math.floor(Math.random() * options.length)].trim();
+    }
+    // Now use the single selected view
+    const augmentedText = `${userText}\n[VIEW_WINDOW: ${selectedWindowView}]\n[VIEW_DOOR: ${doorView}]`;
 
     // Seed audit row (processing)
     const modelEff = (bodyJSON.model || "qwen").toLowerCase();

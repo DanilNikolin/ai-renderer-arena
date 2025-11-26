@@ -13,7 +13,7 @@ import { LLM_SYSTEM_PROMPT } from "@/lib/constants";
 type Dims = { w: number; h: number } | null;
 
 // ВАЖНО: NEG_DEFAULT нужен уже в initial state ниже — вынес его сюда
-const NEG_DEFAULT = "blurry, ugly, deformed, text, watermark";
+const NEG_DEFAULT = "blurry, ugly, deformed, text, watermark, toilet, toilet bowl, urinal";
 
 export function useUserImageWorkspace() {
   // --- БЛОК УПРАВЛЕНИЯ ФАЙЛАМИ ---
@@ -52,7 +52,7 @@ export function useUserImageWorkspace() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparePos, setComparePos] = useState(50);
-  const [windowView, setWindowView] = useState("a lush green summer forest");
+  const [windowView, setWindowView] = useState("Green summer forest, photorealism, high detail|snow-covered winter forest, photorealism, high detail|a majestic view of the snow-capped Alpine mountains under a clear blue sky,photorealism, high detail|a neat suburban backyard in summer with a manicured green lawn and a wooden fence,photorealism, high detail|a suburban backyard in winter, covered in a fresh blanket of snow,photorealism, high detail|the lake, photorealism, high detail");
   const [doorView, setDoorView] = useState("a cozy antechamber (changing room)");
   const [helperPrompts, setHelperPrompts] = useState({
     background: "",
@@ -222,7 +222,12 @@ export function useUserImageWorkspace() {
 
     try {
       // 1) Автозапуск промпт-инженера (жёстко: gpt-5-mini)
-      const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
+      let selectedWindowView = windowView;
+      if (windowView.includes('|')) {
+        const options = windowView.split('|').filter(s => s.trim().length > 0);
+        selectedWindowView = options[Math.floor(Math.random() * options.length)].trim();
+      }
+      const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${selectedWindowView}]\n[VIEW_DOOR: ${doorView}]`;
       const refinePayload = {
         prompt: finalRawPrompt,
         model: "gpt-5-mini",

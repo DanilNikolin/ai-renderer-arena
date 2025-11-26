@@ -10,11 +10,12 @@ interface EnvironmentSettingsProps {
 }
 
 const windowTemplates = [
-  { label: 'Лес летний', value: 'a lush green summer forest with sunbeams filtering through the leaves' },
-  { label: 'Лес зимний', value: 'a quiet, snow-covered winter forest with tall pine trees' },
-  { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky' },
-  { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence' },
-  { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow' },
+  { label: 'Лес летний', value: 'Green summer forest, photorealism, high detail' },
+  { label: 'Лес зимний', value: 'snow-covered winter forest, photorealism, high detail' },
+  { label: 'Горы (Альпы)', value: 'a majestic view of the snow-capped Alpine mountains under a clear blue sky,photorealism, high detail' },
+  { label: 'Двор летний', value: 'a neat suburban backyard in summer with a manicured green lawn and a wooden fence,photorealism, high detail' },
+  { label: 'Двор зимний', value: 'a suburban backyard in winter, covered in a fresh blanket of snow,photorealism, high detail' },
+  { label: 'Озеро', value: 'the lake, photorealism, high detail' },
 ];
 
 const doorTemplates = [

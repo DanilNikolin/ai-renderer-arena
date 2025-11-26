@@ -136,14 +136,14 @@ export function useImageWorkspace() {
     initialLlmSettingsByModel
   );
   const [negativePrompt, setNegativePrompt] = useState(
-    "blurry, ugly, deformed, text, watermark"
+    "blurry, ugly, deformed, text, watermark, toilet, toilet bowl, urinal"
   );
   const [showNeg, setShowNeg] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparePos, setComparePos] = useState(50);
-  const [windowView, setWindowView] = useState("a dense Scandinavian forest");
-  const [doorView, setDoorView] = useState("a cozy antechamber (changing room)");
+  const [windowView, setWindowView] = useState("Green summer forest, photorealism, high detail|snow-covered winter forest, photorealism, high detail|a majestic view of the snow-capped Alpine mountains under a clear blue sky,photorealism, high detail|a neat suburban backyard in summer with a manicured green lawn and a wooden fence,photorealism, high detail|a suburban backyard in winter, covered in a fresh blanket of snow,photorealism, high detail|the lake, photorealism, high detail");
+  const [doorView, setDoorView] = useState("cozy entrance hall (changing room) with bath towels");
   const abortControllerRef = useRef<AbortController | null>(null);
   const [jsonContent, setJsonContent] = useState<string | null>(null);
   const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
@@ -1022,7 +1022,12 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
       base64Image = `data:${sourceFile.type};base64,${arrayBufferToBase64(buffer)}`;
     }
 
-    const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${windowView}]\n[VIEW_DOOR: ${doorView}]`;
+    let selectedWindowView = windowView;
+    if (windowView.includes('|')) {
+      const options = windowView.split('|').filter(s => s.trim().length > 0);
+      selectedWindowView = options[Math.floor(Math.random() * options.length)].trim();
+    }
+    const finalRawPrompt = `${rawPrompt.trim()}\n[VIEW_WINDOW: ${selectedWindowView}]\n[VIEW_DOOR: ${doorView}]`;
     const activeSettings = {
       ...defaultLlmSettings,
       ...llmSettingsByModel[settingsManager.selectedModel],
