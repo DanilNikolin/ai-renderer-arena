@@ -53,11 +53,11 @@ export type WorkspaceStateDTO = {
 type MeResponse =
   | { authenticated: false }
   | {
-      authenticated: true;
-      projectId: string;
-      mode: "local_dev" | "prod";
-      accountId: string | null;
-    };
+    authenticated: true;
+    projectId: string;
+    mode: "local_dev" | "prod";
+    accountId: string | null;
+  };
 
 /* ---------------- helpers ---------------- */
 
@@ -263,11 +263,17 @@ export function useImageWorkspace() {
 
     (async () => {
       try {
-        const meRes = await fetch("/api/auth/me", { cache: "no-store" });
-        const me = (await meRes.json()) as unknown as MeResponse;
-        const authed = me.authenticated === true;
+
+        // --- Supabase Check ---
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        const authed = !!session;
+
+        // Update state
         if (cancelled) return;
         setIsAuthed(authed);
+
 
         if (authed) {
           const sRes = await fetch("/api/workspace/state", { cache: "no-store" });
@@ -595,7 +601,7 @@ Crucially:
     helperPrompt: string
   ) => {
     if (!activeNode) return fail("Нет активного узла для доработки.");
-    
+
     const model = 'gemini';
 
     setIsLoading(true);
@@ -606,7 +612,7 @@ Crucially:
     if (helperPrompt.trim()) {
       promptText += ` An additional user hint is: "${helperPrompt.trim()}".`;
     }
-    
+
     settingsManager.updateSeedForGeneration();
     const settings = settingsManager.getCurrentSettings(model);
 
@@ -614,7 +620,7 @@ Crucially:
     formData.append("image", targetMapFile);
     formData.append("reference_image", referenceObjectFile);
     formData.append("prompt", promptText);
-   
+
     formData.append("model", model);
     formData.append("settings", JSON.stringify(settings));
 
@@ -626,7 +632,7 @@ Crucially:
         imageUrl: data.imageUrl,
         sourceImageUrl: activeNode.sourceImageUrl,
         prompt: promptText,
-        negativePrompt: '', 
+        negativePrompt: '',
         model,
         settings,
       };
@@ -1119,7 +1125,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
         // <<< 1. Создаем новый массив с результатом
         const newBaseResults = [...baseResults, newNode];
         setBaseResults(newBaseResults);
-        
+
         // <<< 2. Сразу после успеха принудительно сохраняем состояние на сервер
         if (isAuthed) {
           const freshSnapshot: WorkspaceStateDTO = {
@@ -1134,13 +1140,13 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
             body: JSON.stringify({ state: freshSnapshot }),
           });
         }
-        
+
         setSelectedBaseResultUrl(newNode.imageUrl);
         setCompareSourceUrl(newNode.sourceImageUrl);
 
       } else { // Для PRO-режима
         if (!activeWorkspaceId) return fail("Критическая ошибка: нет воркспейса.");
-        
+
         // <<< 1. Создаем новый объект воркспейсов
         const newWorkspaces = {
           ...workspaces,
@@ -1167,7 +1173,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
             body: JSON.stringify({ state: freshSnapshot }),
           });
         }
-        
+
         setActiveNodeId(newNode.id);
       }
     } catch (e) {

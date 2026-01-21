@@ -1,34 +1,34 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import AuthPanel from "./AuthPanel";
-
-type MeResponse =
-  | { authenticated: false }
-  | { authenticated: true; projectId: string; mode: "local_dev" | "prod"; accountId: string | null };
+import { createClient } from "@/lib/supabase/client";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = React.useState(true);
-  const [me, setMe] = React.useState<MeResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const supabase = createClient();
 
-  async function refresh() {
+  async function checkSession() {
     setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
-      const j: MeResponse = await res.json();
-      setMe(j);
-    } catch (e) {
-      setError("Failed to verify authorization");
-    } finally {
-      setLoading(false);
-    }
+    const { data: { session } } = await supabase.auth.getSession();
+    setAuthenticated(!!session);
+    setLoading(false);
   }
 
-  React.useEffect(() => {
-    void refresh();
-  }, []);
+  useEffect(() => {
+    checkSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthenticated(!!session);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   if (loading) {
     return (
@@ -39,8 +39,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!me || !("authenticated" in me) || me.authenticated === false) {
-    return <AuthPanel onSuccess={refresh} />;
+  if (!authenticated) {
+    return <AuthPanel onSuccess={checkSession} />;
   }
 
   return <>{children}</>;

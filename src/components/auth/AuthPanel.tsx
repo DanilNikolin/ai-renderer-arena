@@ -1,220 +1,148 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
-type Props = { onSuccess?: () => void };
+export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-// ---------- small typed helpers ----------
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-function parseMaybeJson(text: string): unknown {
-  try {
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return null;
-  }
-}
-function extractMessage(payload: unknown, status: number): string {
-  if (isRecord(payload)) {
-    const err = payload["error"];
-    const msg = payload["message"];
-    if (typeof err === "string") return err;
-    if (typeof msg === "string") return msg;
-  }
-  return `HTTP ${status}`;
-}
-function hasPak(x: unknown): x is { pak: string } {
-  return isRecord(x) && typeof x["pak"] === "string";
-}
+  const supabase = createClient();
 
-/** POST JSON and parse a typed response */
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  const parsed = parseMaybeJson(text);
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setMessage(null);
 
-  if (!res.ok) {
-    throw new Error(extractMessage(parsed, res.status));
-  }
-  // If the endpoint returns nothing, treat as empty object of T
-  return (parsed ?? ({} as unknown)) as T;
-}
-
-export default function AuthPanel({ onSuccess }: Props) {
-  const [tab, setTab] = React.useState<"signup" | "login" | "local" | "pak">("signup");
-  const [msg, setMsg] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-
-  // shared fields
-  const [projectId, setProjectId] = React.useState("");
-  const [projectNumber, setProjectNumber] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [pak, setPak] = React.useState("");
-
-  async function handle<T>(fn: () => Promise<T>) {
-    setBusy(true);
-    setMsg(null);
     try {
-      const j = await fn();
-      if (hasPak(j) && tab === "signup") {
-        setPak(j.pak);
-        setMsg("PAK создан: сохраните ключ сейчас!");
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+        if (error) throw error;
+        setMessage("Проверьте почту для подтверждения регистрации!");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        onSuccess?.();
       }
-      onSuccess?.();
-    } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : "Ошибка");
+    } catch (err: any) {
+      setError(err.message || "Ошибка авторизации");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="mx-auto max-w-md w-full bg-gray-900/70 border border-gray-800 rounded-xl p-4 space-y-4">
-      <div className="flex gap-2 text-xs">
-        <button onClick={() => setTab("signup")} className={btn(tab === "signup")}>Sign-Up</button>
-        <button onClick={() => setTab("login")} className={btn(tab === "login")}>Login</button>
-        <button onClick={() => setTab("pak")} className={btn(tab === "pak")}>Login-PAK</button>
-        {/* <button onClick={() => setTab("local")} className={btn(tab === "local")}>Login-Local</button> */}
+    <div className="w-full max-w-md mx-auto bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-2xl">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-white">
+          {isSignUp ? "Регистрация" : "Вход"}
+        </h2>
+        <button
+          onClick={() => {
+            setIsSignUp(!isSignUp);
+            setError(null);
+            setMessage(null);
+          }}
+          className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+        >
+          {isSignUp ? "Есть аккаунт?" : "Нет аккаунта?"}
+        </button>
       </div>
 
-      {msg && <div className="text-xs text-yellow-300">{msg}</div>}
-      {pak && tab === "signup" && (
-        <div className="text-[11px] bg-amber-900/30 border border-amber-700 rounded p-2 break-all">
-          <div className="font-semibold mb-1">Ваш Project Access Key (показывается один раз):</div>
-          <code>{pak}</code>
+      {error && (
+        <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded text-red-200 text-sm">
+          {error}
         </div>
       )}
 
-      {tab === "signup" && (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handle(() =>
-              postJson<{ projectId: string; pak: string }>("/api/auth/signup", {
-                projectId,
-                projectNumber,
-                email,
-                password,
-              })
-            );
-          }}
-        >
-          <Input label="Project ID" value={projectId} onChange={setProjectId} required />
-          <Input label="Project Number (опц.)" value={projectNumber} onChange={setProjectNumber} />
-          <Input label="Email" type="email" value={email} onChange={setEmail} required />
-          <Input label="Password" type="password" value={password} onChange={setPassword} required />
-          <Submit busy={busy} text="Создать проект и аккаунт" />
-        </form>
+      {message && (
+        <div className="mb-4 p-3 bg-green-900/30 border border-green-800 rounded text-green-200 text-sm">
+          {message}
+        </div>
       )}
 
-      {tab === "login" && (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handle(() =>
-              postJson<{ projectId: string; accountId: string }>("/api/auth/login", {
-                projectId,
-                email,
-                password,
-              })
-            );
-          }}
-        >
-          <Input label="Project ID" value={projectId} onChange={setProjectId} required />
-          <Input label="Email" type="email" value={email} onChange={setEmail} required />
-          <Input label="Password" type="password" value={password} onChange={setPassword} required />
-          <Submit busy={busy} text="Войти" />
-        </form>
-      )}
+      <form onSubmit={handleAuth} className="space-y-4">
+        <div>
+          <label className="block text-xs uppercase text-gray-500 font-semibold mb-1">
+            Email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white focus:border-cyan-500 focus:outline-none transition-colors"
+            placeholder="name@example.com"
+          />
+        </div>
 
-      {tab === "pak" && (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handle(() =>
-              postJson<{ projectId: string }>("/api/auth/login-pak", {
-                projectId,
-                accessKey: pak,
-              })
-            );
-          }}
-        >
-          <Input label="Project ID" value={projectId} onChange={setProjectId} required />
-          <Input label="Project Access Key (PAK)" value={pak} onChange={setPak} required />
-          <Submit busy={busy} text="Войти по ключу" />
-        </form>
-      )}
+        <div>
+          <label className="block text-xs uppercase text-gray-500 font-semibold mb-1">
+            Пароль
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
+            className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white focus:border-cyan-500 focus:outline-none transition-colors"
+            placeholder="••••••••"
+          />
+        </div>
 
-      {/* {tab === "local" && (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handle(() => postJson<{ projectId: string; mode: "local_dev" }>("/api/auth/login-local", { projectId }));
-          }}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98]"
         >
-          <Input label="Project ID" value={projectId} onChange={setProjectId} required />
-          <Submit busy={busy} text="Локальный вход (dev)" />
-          <p className="text-[11px] text-gray-400">
-            Работает только при <code>AUTH_MODE=local_dev</code>.
-          </p>
-        </form>
-      )} */}
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              Обработка...
+            </span>
+          ) : isSignUp ? (
+            "Создать аккаунт"
+          ) : (
+            "Войти"
+          )}
+        </button>
+      </form>
+
+      <div className="mt-6 pt-6 border-t border-gray-800 text-center">
+        <p className="text-xs text-gray-500">
+          Project ID создается автоматически
+        </p>
+      </div>
     </div>
-  );
-}
-
-function btn(active: boolean) {
-  return [
-    "px-2.5 py-1 rounded border text-gray-300",
-    active ? "border-cyan-700 bg-cyan-900/20" : "border-gray-800 hover:bg-gray-800",
-  ].join(" ");
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="text-gray-300">{label}</span>
-      <input
-        className="mt-1 w-full rounded bg-gray-950 border border-gray-800 px-3 py-2 text-sm text-gray-200 outline-none focus:border-cyan-600"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        type={type}
-        required={required}
-      />
-    </label>
-  );
-}
-
-function Submit({ busy, text }: { busy: boolean; text: string }) {
-  return (
-    <button
-      type="submit"
-      disabled={busy}
-      className="w-full text-sm px-3 py-2 rounded bg-cyan-700 hover:bg-cyan-600 text-white disabled:opacity-60"
-    >
-      {busy ? "Подождите…" : text}
-    </button>
   );
 }
