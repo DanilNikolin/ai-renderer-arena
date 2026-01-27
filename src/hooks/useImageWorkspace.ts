@@ -145,9 +145,7 @@ export function useImageWorkspace() {
   const [windowView, setWindowView] = useState("Green summer forest, photorealism, high detail|snow-covered winter forest, photorealism, high detail|a majestic view of the snow-capped Alpine mountains under a clear blue sky,photorealism, high detail|a neat suburban backyard in summer with a manicured green lawn and a wooden fence,photorealism, high detail|a suburban backyard in winter, covered in a fresh blanket of snow,photorealism, high detail|the lake, photorealism, high detail");
   const [doorView, setDoorView] = useState("cozy entrance hall (changing room) with bath towels");
   const abortControllerRef = useRef<AbortController | null>(null);
-  const [jsonContent, setJsonContent] = useState<string | null>(null);
-  const [isJsonViewerOpen, setIsJsonViewerOpen] = useState(false);
-  const [jsonError, setJsonError] = useState<string | null>(null);
+
   const [promptTokenCount, setPromptTokenCount] = useState(0);
   const [negativeTokenCount, setNegativeTokenCount] = useState(0);
   const [helperPrompts, setHelperPrompts] = useState({
@@ -1198,34 +1196,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     }
   };
 
-  const handleJsonFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        if (typeof event.target?.result !== "string")
-          throw new Error("Не удалось прочитать файл.");
-        const parsed = JSON.parse(event.target.result);
-        setJsonContent(JSON.stringify(parsed, null, 2));
-        setJsonError(null);
-        setIsJsonViewerOpen(true);
-      } catch {
-        setJsonError("Ошибка парсинга. Убедись, что это валидный JSON-файл.");
-        setJsonContent(null);
-      }
-    };
-    reader.onerror = () => {
-      setJsonError("Не удалось прочитать файл.");
-      setJsonContent(null);
-    };
-    reader.readAsText(file);
-  };
 
-  const onJsonFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type === "application/json") handleJsonFile(file);
-    else if (file) setJsonError("Неверный тип файла. Нужен JSON.");
-    e.target.value = "";
-  };
 
   const onClear = () => {
     clearFile();
@@ -1344,11 +1315,6 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     setWindowView,
     doorView,
     setDoorView,
-    jsonContent,
-    isJsonViewerOpen,
-    setIsJsonViewerOpen,
-    jsonError,
-    onJsonFileChange,
     onGenerate,
     onGenerateBackgroundReplacement,
     onGenerateTextureReplacement,

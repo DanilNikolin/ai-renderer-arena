@@ -59,11 +59,7 @@ export interface SidebarProps {
   onCancel: () => void;
   onClear: () => void;
   error: string | null;
-  jsonContent: string | null;
-  isJsonViewerOpen: boolean;
-  setIsJsonViewerOpen: (value: React.SetStateAction<boolean>) => void;
-  jsonError: string | null;
-  onJsonFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
+
   promptTokenCount: number;
   negativeTokenCount: number;
   seedreamTargetSize: 1024 | 1280 | 'original';

@@ -1,5 +1,5 @@
 // src/components/sidebar/PromptEngineer.tsx
-import React, { ChangeEvent } from "react";
+import React, { ChangeEvent, DragEvent, useState } from "react";
 import { Label, Slider } from "@/components/ui/FormControls";
 import { LlmSettings, Model } from "@/lib/types";
 
@@ -45,6 +45,33 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
     return { ...defaults, ...llmSettingsByModel[selectedModel] };
   }, [llmSettingsByModel, selectedModel]);
 
+  const [isDragging, setIsDragging] = useState(false);
+
+  const onDragOver = (e: DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const onDragLeave = (e: DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const onDrop = async (e: DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      try {
+        const text = await file.text();
+        setRawPrompt(text);
+      } catch (err) {
+        console.error("Failed to read file", err);
+      }
+    }
+  };
+
   return (
     <div
       className="mt-5 space-y-3 border border-gray-700/50 rounded-lg p-3"
@@ -65,10 +92,14 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
             <Label title="1. Сообщение для LLM" />
             <textarea
               rows={3}
-              className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              placeholder="Опиши задачу простыми словами (напр.: стены кедр, лавки осина)"
+              className={`w-full bg-gray-900 border ${isDragging ? "border-cyan-500 bg-gray-800" : "border-gray-800"
+                } rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors`}
+              placeholder="Опиши задачу или перетащи текстовый файл..."
               value={rawPrompt}
               onChange={(e) => setRawPrompt(e.target.value)}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
             />
           </div>
 
@@ -97,11 +128,10 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
                         target: { name: 'model', value: model },
                       } as unknown as ChangeEvent<HTMLInputElement>);
                     }}
-                    className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${
-                      activeLlmSettings.model === model
-                        ? "bg-cyan-600 text-white"
-                        : "hover:bg-gray-800"
-                    }`}
+                    className={`w-full px-2 py-1 text-xs rounded-md transition-colors ${activeLlmSettings.model === model
+                      ? "bg-cyan-600 text-white"
+                      : "hover:bg-gray-800"
+                      }`}
                   >
                     {model.replace("gpt-5-", "GPT-5 ")}
                   </button>

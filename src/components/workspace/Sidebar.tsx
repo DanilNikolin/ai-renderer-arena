@@ -3,7 +3,7 @@ import React from "react";
 import type { SidebarProps } from "./Sidebar.types";
 import { ModeSwitcher } from '../sidebar/ModeSwitcher';
 import { FileUpload } from '../sidebar/FileUpload';
-import { JsonViewer } from '../sidebar/JsonViewer';
+
 import { EnvironmentSettings } from '../sidebar/EnvironmentSettings';
 import { PromptEngineer } from '../sidebar/PromptEngineer';
 import { ProTools } from '../sidebar/ProTools';
@@ -35,13 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
               onDrop={props.onDrop}
               onFileChange={props.onFileChange}
             />
-            <JsonViewer
-              isJsonViewerOpen={props.isJsonViewerOpen}
-              setIsJsonViewerOpen={props.setIsJsonViewerOpen}
-              onJsonFileChange={props.onJsonFileChange}
-              jsonError={props.jsonError}
-              jsonContent={props.jsonContent}
-            />
+
             <EnvironmentSettings
               windowView={props.windowView}
               setWindowView={props.setWindowView}
