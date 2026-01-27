@@ -1,7 +1,7 @@
 // src/app/api/admin/history/route.ts
 import { NextResponse } from "next/server";
 import { query, one } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth } from "@/lib/guard";
 
 // --- (ТИП ОБНОВЛЁН) ---
 export type AuditHistoryRow = {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { one, query } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth } from "@/lib/guard";
 import { saveLibraryAsset } from "@/lib/storage"; // если у тебя другой путь (например "@/lib/minio"), поправь импорт
 
 // ---- Явные типы для строгой проверки
@@ -13,7 +13,7 @@ type AdminAuthResult =
 // ---- Валидация входных полей формы
 const BodySchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(["2d_object", "3d_object", "2d_texture"], { 
+  type: z.enum(["2d_object", "3d_object", "2d_texture"], {
     required_error: "type is required",
     // Обновляем сообщение об ошибке
     invalid_type_error: "type must be '2d_object' | '3d_object' | '2d_texture'",

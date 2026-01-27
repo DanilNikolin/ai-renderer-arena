@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { one, query } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth } from "@/lib/guard";
 import { deleteLibraryAsset } from "@/lib/storage";
 
 /** Админ-авторизация */
@@ -65,9 +65,9 @@ export async function DELETE(
     }
 
     // 4) Удаляем запись
-        const { rowCount } = await query(`DELETE FROM library_assets WHERE id = $1`, [id]); // <<< 1. ДЕСТРУКТУРИРОВАТЬ
-        if (rowCount === 0) { // <<< 2. ПРОВЕРЯТЬ
-          console.warn(`[DELETE /api/library/assets/${id}] Row not deleted from DB (rowCount=0).`);
+    const { rowCount } = await query(`DELETE FROM library_assets WHERE id = $1`, [id]); // <<< 1. ДЕСТРУКТУРИРОВАТЬ
+    if (rowCount === 0) { // <<< 2. ПРОВЕРЯТЬ
+      console.warn(`[DELETE /api/library/assets/${id}] Row not deleted from DB (rowCount=0).`);
       // продолжаем чистить файлы
     }
 
