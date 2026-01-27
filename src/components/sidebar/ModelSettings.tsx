@@ -38,7 +38,7 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
   return (
     <div className="mt-5 pt-4 border-t border-gray-800 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-200">Параметры</h3>
+        <h3 className="text-sm font-semibold text-gray-200">Parameters</h3>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1 text-[11px] text-gray-400">
             <input
@@ -47,13 +47,13 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
               onChange={(e) => setSeedLock(e.target.checked)}
               className="accent-cyan-500"
             />
-            Фиксировать seed
+            Lock Seed
           </label>
           <button
             type="button"
             onClick={randomizeSeed}
             className="text-[11px] px-2 py-1 rounded border border-gray-700 text-gray-300 hover:bg-gray-800"
-            title="Случайный seed"
+            title="Random Seed"
           >
             🎲
           </button>
@@ -111,7 +111,7 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
             step={0.5}
             onChange={handleFluxChange}
             name="safety_tolerance"
-            info="Большее — строже safety и потенциальный кроп."
+            info="Higher means stricter safety and potential crop."
           />
           <Slider
             label="Seed"
@@ -128,7 +128,7 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
       {selectedModel === "seedream" && (
         <>
           <div>
-            <Label title="Размер вывода (длинная сторона)" />
+            <Label title="Output Size (Long Edge)" />
             <div className="grid grid-cols-3 gap-2">
               {([1024, 1280, 'original'] as const).map((size) => (
                 <button
@@ -141,7 +141,7 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
                       : "bg-gray-900 text-gray-400 hover:bg-gray-800"
                   )}
                 >
-                  {size === 'original' ? 'Оригинал' : `${size}px`}
+                  {size === 'original' ? 'Original' : `${size}px`}
                 </button>
               ))}
             </div>
@@ -166,7 +166,7 @@ export const ModelSettings: React.FC<ModelSettingsProps> = ({
 
       {selectedModel === "gemini" && (
         <p className="text-xs text-gray-500">
-          Для Gemini пока нет доп. параметров.
+          No additional parameters for Gemini yet.
         </p>
       )}
     </div>

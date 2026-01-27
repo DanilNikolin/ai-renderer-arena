@@ -158,8 +158,8 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
       setError(null);
 
       try {
-        const res = await fetch ('/api/library/assets?type=2d_texture');
-        if (!res.ok) throw new Error('Не удалось загрузить библиотеку');
+        const res = await fetch('/api/library/assets?type=2d_texture');
+        if (!res.ok) throw new Error('Failed to load library');
 
         const data: LibraryAsset[] = await res.json();
         if (!aborted) {
@@ -168,7 +168,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
       } catch (e) {
         if (!aborted) {
           setError(
-            e instanceof Error ? e.message : 'Ошибка загрузки библиотеки'
+            e instanceof Error ? e.message : 'Library load error'
           );
         }
       } finally {
@@ -195,7 +195,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
     setError(null);
     try {
       const res = await fetch(asset.fileUrl);
-      if (!res.ok) throw new Error('Не удалось скачать ассет');
+      if (!res.ok) throw new Error('Failed to download asset');
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -203,7 +203,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
       setCropRequest(url); // откроет кроппер
       setMode('upload'); // возвращаемся на вкладку "Загрузить свою", чтобы UI был консистентным
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка при выборе ассета');
+      setError(e instanceof Error ? e.message : 'Error selecting asset');
     }
   };
 
@@ -216,7 +216,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
     if (!file) return;
 
     if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      setError('Invalid file type. Need PNG, JPEG or WebP.');
       return;
     }
     setError(null);
@@ -265,7 +265,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
       <div className="space-y-4 pt-3">
         {/* Блок 1: Загрузка Текстуры */}
         <div>
-          <Label title="1. Загрузите текстуру" />
+          <Label title="1. Upload Texture" />
 
           {/* Табы: Загрузить свою / Библиотека */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-gray-900 border border-gray-700 rounded-lg mb-3">
@@ -279,7 +279,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
                   : 'text-gray-400 hover:bg-gray-800'
               )}
             >
-              Загрузить свою
+              Upload Own
             </button>
             <button
               type="button"
@@ -291,7 +291,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
                   : 'text-gray-400 hover:bg-gray-800'
               )}
             >
-              Библиотека
+              Library
             </button>
           </div>
 
@@ -310,7 +310,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
               >
-                {texturePreview ? 'Заменить текстуру' : '+ Выбрать текстуру'}
+                {texturePreview ? 'Replace Texture' : '+ Select Texture'}
               </button>
 
               {texturePreview && (
@@ -326,7 +326,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
                     type="button"
                     onClick={() => setTextureFile(null)}
                     className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                    title="Убрать текстуру"
+                    title="Remove Texture"
                   >
                     ✕
                   </button>
@@ -340,13 +340,13 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
             <div className="p-2 bg-gray-900 border border-gray-700 rounded-lg">
               {isLoadingLibrary && (
                 <p className="text-xs text-gray-400 text-center py-4">
-                  Загрузка...
+                  Loading...
                 </p>
               )}
 
               {!isLoadingLibrary && libraryAssets.length === 0 && (
                 <p className="text-xs text-gray-500 text-center py-4">
-                  Библиотека 2D-текстур пуста.
+                  2D Texture Library is empty.
                 </p>
               )}
 
@@ -377,14 +377,14 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
         {/* Блок 2: Указание цели на фото */}
         <div>
-          <Label title="2. Укажите цель на фото" />
+          <Label title="2. Indicate Target on Photo" />
           <button
             type="button"
             onClick={() => setIsPointerEditorOpen(true)}
             disabled={!activeImageUrl}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
           >
-            {targetMapPreview ? 'Изменить указатель' : '🎯 Поставить указатель'}
+            {targetMapPreview ? 'Change Pointer' : '🎯 Place Pointer'}
           </button>
 
           {targetMapPreview && (
@@ -400,7 +400,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
                 type="button"
                 onClick={() => setTargetMapFile(null)}
                 className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                title="Убрать указатель"
+                title="Remove Pointer"
               >
                 ✕
               </button>
@@ -414,7 +414,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
         {/* Выбор модели */}
         {!hideModelSelector && (
           <div>
-            <Label title="Модель" />
+            <Label title="Model" />
             <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
               {(['gemini', 'seedream'] as const).map((model) => (
                 <button
@@ -437,7 +437,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
 
         {/* Доп. уточнение */}
         <div>
-          <Label title="Уточнение (необязательно)" />
+          <Label title="Clarification (optional)" />
           <div className="relative">
             <textarea
               rows={2}
@@ -445,7 +445,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
               value={helperPrompt}
               onChange={(e) => onHelperPromptChange(e.target.value)}
               className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-              placeholder="Пример: сделать текстуру более старой"
+              placeholder="Example: make texture older"
             />
             <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
               {helperPrompt.length}/180
@@ -465,7 +465,7 @@ export const TextureTransplanter: React.FC<TextureTransplanterProps> = ({
               : 'bg-gray-700 text-gray-400 cursor-not-allowed'
           )}
         >
-          {isLoading ? 'Обработка...' : 'Применить Текстуру'}
+          {isLoading ? 'Processing...' : 'Apply Texture'}
         </button>
       </div>
 

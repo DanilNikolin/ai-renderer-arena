@@ -25,7 +25,7 @@ export default function LogoutButton({ className = "" }: { className?: string })
       className={`text-xs px-2 py-1 rounded border border-gray-800 text-gray-300 hover:bg-gray-800 ${className}`}
       disabled={busy}
     >
-      {busy ? "Выход…" : "Выйти"}
+      {busy ? "Signing out..." : "Sign out"}
     </button>
   );
 }

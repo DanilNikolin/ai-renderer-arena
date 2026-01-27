@@ -75,11 +75,11 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
       setError(null);
       try {
         const res = await fetch('/api/library/assets?type=3d_object');
-        if (!res.ok) throw new Error('Не удалось загрузить библиотеку 3D');
+        if (!res.ok) throw new Error('Failed to load 3D library');
         const data = await res.json();
         setLibraryAssets(data as LibraryAsset[]);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Ошибка загрузки');
+        setError(e instanceof Error ? e.message : 'Load error');
       } finally {
         setIsLoadingLibrary(false);
       }
@@ -93,7 +93,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
     setError(null);
     try {
       const res = await fetch(asset.fileUrl);
-      if (!res.ok) throw new Error('Не удалось скачать 3D ассет');
+      if (!res.ok) throw new Error('Failed to download 3D asset');
       const blob = await res.blob();
 
       const fileName = asset.fileUrl.split('/').pop() || 'model.glb';
@@ -102,7 +102,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
       setModelFile(file);   // триггерит открытие модалки
       setMode('upload');    // возвращаемся на вкладку "Загрузить"
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка');
+      setError(e instanceof Error ? e.message : 'Error');
     }
   };
 
@@ -113,7 +113,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
     if (file && (fileName.endsWith('.glb') || fileName.endsWith('.gltf') || fileName.endsWith('.obj'))) {
       setModelFile(file);
     } else if (file) {
-      alert('Неверный формат файла. Поддерживаются .glb, .gltf, .obj');
+      alert('Invalid file format. Supported: .glb, .gltf, .obj');
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -122,11 +122,11 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
 
   // Коллбэки модалки
   const handleModalConfirm = (targetMapBlob: Blob, referenceObjectBlob: Blob) => {
-    console.log('ПЕРЕХВАЧЕНЫ БЛОБЫ ИЗ МОДАЛКИ:', { targetMapBlob, referenceObjectBlob });
+    console.log('INTERCEPTED BLOBS FROM MODAL:', { targetMapBlob, referenceObjectBlob });
     const targetUrl = URL.createObjectURL(targetMapBlob);
     const refUrl = URL.createObjectURL(referenceObjectBlob);
-    console.log('КАРТА ЦЕЛИ (скопируй и вставь в браузер):', targetUrl);
-    console.log('РЕФЕРЕНС ОБЪЕКТА (скопируй и вставь в браузер):', refUrl);
+    console.log('TARGET MAP (copy and paste in browser):', targetUrl);
+    console.log('REFERENCE OBJECT (copy and paste in browser):', refUrl);
 
     setTargetMapFile(new File([targetMapBlob], 'target_map.png', { type: 'image/png' }));
     setReferenceObjectFile(new File([referenceObjectBlob], 'reference_object.png', { type: 'image/png' }));
@@ -154,27 +154,25 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
       <div className="space-y-4 pt-3">
         {/* Блок загрузки модели / библиотека */}
         <div className="space-y-2">
-          <Label title="3D Модель (.glb, .gltf, .obj)" />
+          <Label title="3D Model (.glb, .gltf, .obj)" />
 
           {/* Табы: Загрузка / Библиотека */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-gray-900 border border-gray-700 rounded-lg mb-3">
             <button
               type="button"
               onClick={() => setMode('upload')}
-              className={`py-1 rounded-md text-xs font-semibold transition-colors ${
-                mode === 'upload' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'
-              }`}
+              className={`py-1 rounded-md text-xs font-semibold transition-colors ${mode === 'upload' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'
+                }`}
             >
-              Загрузить свою
+              Upload Own
             </button>
             <button
               type="button"
               onClick={() => setMode('library')}
-              className={`py-1 rounded-md text-xs font-semibold transition-colors ${
-                mode === 'library' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'
-              }`}
+              className={`py-1 rounded-md text-xs font-semibold transition-colors ${mode === 'library' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'
+                }`}
             >
-              Библиотека
+              Library
             </button>
           </div>
 
@@ -194,7 +192,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
                 className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition flex justify-center items-center min-w-0"
               >
                 <span className="truncate">
-                  {modelFile ? `Заменить: ${modelFile.name}` : '+ Выбрать 3D модель'}
+                  {modelFile ? `Replace: ${modelFile.name}` : '+ Select 3D Model'}
                 </span>
               </button>
             </div>
@@ -204,11 +202,11 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
           {mode === 'library' && (
             <div className="p-2 bg-gray-900 border border-gray-700 rounded-lg">
               {isLoadingLibrary && (
-                <p className="text-xs text-gray-400 text-center py-4">Загрузка...</p>
+                <p className="text-xs text-gray-400 text-center py-4">Loading...</p>
               )}
               {error && <p className="text-xs text-red-400 text-center py-2">{error}</p>}
               {!isLoadingLibrary && libraryAssets.length === 0 && !error && (
-                <p className="text-xs text-gray-500 text-center py-4">Библиотека 3D-моделей пуста.</p>
+                <p className="text-xs text-gray-500 text-center py-4">3D Model Library is empty.</p>
               )}
               <div className="grid grid-cols-4 gap-2 max-h-[150px] overflow-y-auto">
                 {libraryAssets.map((asset) => (
@@ -259,7 +257,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
         {/* Превью для AI */}
         {targetMapPreviewUrl && referenceObjectPreviewUrl && (
           <div className="space-y-3">
-            <Label title="Превью для AI" />
+            <Label title="Preview for AI" />
             <div className="grid grid-cols-2 gap-3">
               <div className="relative h-24 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
                 <Image
@@ -285,21 +283,21 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
               onClick={handleClearResults}
               className="w-full text-center text-xs text-red-400 hover:text-red-300"
             >
-              Очистить
+              Clear
             </button>
           </div>
         )}
 
         {/* Уточнение и отправка */}
         <div className="space-y-3">
-          <Label title="Уточнение (опционально)" />
+          <Label title="Clarification (optional)" />
           <textarea
             rows={2}
             maxLength={180}
             value={helperPrompt}
             onChange={(e) => setHelperPrompt(e.target.value)}
             className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs placeholder:text-gray-500"
-            placeholder="Например, сделай объект более блестящим"
+            placeholder="Example: make the object more shiny"
           />
           <button
             type="button"
@@ -307,7 +305,7 @@ export const ObjectInjector3D: React.FC<ObjectInjector3DProps> = ({ saunaImageUr
             disabled={!targetMapFile || !referenceObjectFile}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-600 transition disabled:bg-gray-800 disabled:text-gray-500 hover:bg-cyan-500"
           >
-            Интегрировать объект
+            Integrate Object
           </button>
         </div>
       </div>

@@ -19,7 +19,7 @@ export const ModeSwitcher: React.FC<ModeSwitcherProps> = ({ activeTab, handleTab
             : "text-gray-400 hover:bg-gray-800 hover:text-white"
         )}
       >
-        Стартовая площадка
+        Launchpad
       </button>
       <button
         onClick={() => handleTabChange('PRO')}
@@ -30,7 +30,7 @@ export const ModeSwitcher: React.FC<ModeSwitcherProps> = ({ activeTab, handleTab
             : "text-gray-400 hover:bg-gray-800 hover:text-white"
         )}
       >
-        Мастерская (PRO)
+        Workshop (PRO)
       </button>
     </div>
   );

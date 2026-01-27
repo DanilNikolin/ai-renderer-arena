@@ -16,7 +16,7 @@ import Image from 'next/image';
 
 type ProToolsProps = Omit<SidebarProps, 'handleTabChange' | 'onGenerateBackgroundReplacement' | 'onGenerateStyleReplacement'> & {
   onGenerateBackgroundReplacement: (
-    file: File | null, 
+    file: File | null,
     targets: { window: boolean; door: boolean },
     model: 'gemini' | 'seedream'
   ) => void;
@@ -95,7 +95,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
   // отправка в API
   const handleSendArrowEdits = () => {
     if (!arrowMapBlob || !arrowInstructions.trim()) {
-      console.error('--- [ProTools] ОСТАНОВКА: Нет картинки (blob) или текста инструкций!');
+      console.error('--- [ProTools] STOP: No image (blob) or instruction text!');
       return;
     }
     props.onGenerateArrowEdits(arrowMapBlob, arrowInstructions, arrowEditorModel);
@@ -109,22 +109,22 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             onClick={props.handleChangeSource}
             className="w-full text-center text-xs text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 bg-yellow-900/20 rounded-md py-2 transition"
           >
-            ↩︎ Сменить исходник
+            ↩︎ Change Source
           </button>
         </div>
       )}
 
-      <h3 className="text-sm font-semibold text-gray-200">PRO-инструменты</h3>
+      <h3 className="text-sm font-semibold text-gray-200">PRO Tools</h3>
 
       <div className="space-y-2">
-        {/* Правка по инструкции */}
+        {/* Instruction Editing */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
             onClick={() => setIsEditorOpen((v) => !v)}
             className="w-full text-left text-sm font-medium text-cyan-400 p-3"
           >
-            {isEditorOpen ? '▼' : '►'} Правка по инструкции
+            {isEditorOpen ? '▼' : '►'} Instruction Editing
           </button>
           {isEditorOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -133,7 +133,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Замена Фона */}
+        {/* Background Replacement */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -141,7 +141,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
             disabled={!props.activeNode}
           >
-            {isBgReplacerOpen ? '▼' : '►'} Замена Фона
+            {isBgReplacerOpen ? '▼' : '►'} Background Replacement
           </button>
           {isBgReplacerOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -156,15 +156,15 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Замена Текстуры */}
+        {/* Texture Replacement */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-              type="button"
-              onClick={() => setIsTextureTransplanterOpen((v) => !v)}
-              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
-              disabled={!props.activeNode}
-            >
-            {isTextureTransplanterOpen ? '▼' : '►'} Замена Текстуры
+            type="button"
+            onClick={() => setIsTextureTransplanterOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+            disabled={!props.activeNode}
+          >
+            {isTextureTransplanterOpen ? '▼' : '►'} Texture Replacement
           </button>
           {isTextureTransplanterOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -180,15 +180,15 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Замена Стиля */}
+        {/* Style Replacement */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-              type="button"
-              onClick={() => setIsStyleTransplanterOpen((v) => !v)}
-              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
-              disabled={!props.activeNode}
-            >
-            {isStyleTransplanterOpen ? '▼' : '►'} Замена Стиля
+            type="button"
+            onClick={() => setIsStyleTransplanterOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+            disabled={!props.activeNode}
+          >
+            {isStyleTransplanterOpen ? '▼' : '►'} Style Replacement
           </button>
           {isStyleTransplanterOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -203,7 +203,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* Внедрение Объекта (2D) */}
+        {/* Object Injection (2D) */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
             type="button"
@@ -211,7 +211,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
             className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
             disabled={!props.activeNode}
           >
-            {isObjectInjectorOpen ? '▼' : '►'} Внедрение Объекта (2D)
+            {isObjectInjectorOpen ? '▼' : '►'} Object Injection (2D)
           </button>
           {isObjectInjectorOpen && (
             <div className="p-3 border-t border-gray-700/50">
@@ -227,47 +227,47 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
           )}
         </div>
 
-        {/* <<< 3. НОВАЯ СЕКЦИЯ-АККОРДЕОН ДЛЯ 3D */}
+        {/* <<< 3. New Accordion Section for 3D */}
         <div className="bg-gray-900/50 border border-purple-800/50 rounded-lg">
           <button
             type="button"
-            onClick={() => setIsObjectInjector3DOpen((v) => !v)} // <<< ПОЧИНЕНО
-            className="w-full text-left text-sm font-medium text-purple-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3" // <<< ЦВЕТ ТОЖЕ
+            onClick={() => setIsObjectInjector3DOpen((v) => !v)} // <<< FIXED
+            className="w-full text-left text-sm font-medium text-purple-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3" // <<< COLOR TOO
             disabled={!props.activeNode}
           >
-            {isObjectInjector3DOpen ? '▼' : '►'} Интеграция Объекта (3D)
+            {isObjectInjector3DOpen ? '▼' : '►'} Object Integration (3D)
           </button>
           {isObjectInjector3DOpen && (
             <div className="p-3 border-t border-purple-800/50">
-            <ObjectInjector3D
-              saunaImageUrl={props.activeNode?.imageUrl ?? null}
-              onGenerate={props.onGenerateObjectInjection3D}
-            />
-          </div>
+              <ObjectInjector3D
+                saunaImageUrl={props.activeNode?.imageUrl ?? null}
+                onGenerate={props.onGenerateObjectInjection3D}
+              />
+            </div>
           )}
         </div>
 
-        {/* Редактор по Стрелкам — сворачиваемая секция */}
+        {/* Arrow Editor - collapsible section */}
         <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg">
           <button
-              type="button"
-              onClick={() => setIsArrowSectionOpen((v) => !v)}
-              className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
-              disabled={!props.activeNode}
-            >
-            {isArrowSectionOpen ? '▼' : '►'} Редактор по Стрелкам
+            type="button"
+            onClick={() => setIsArrowSectionOpen((v) => !v)}
+            className="w-full text-left text-sm font-medium text-cyan-400 disabled:text-gray-600 disabled:cursor-not-allowed p-3"
+            disabled={!props.activeNode}
+          >
+            {isArrowSectionOpen ? '▼' : '►'} Arrow Editor
           </button>
 
           {isArrowSectionOpen && (
             <div className="p-3 border-t border-gray-700/50 space-y-3">
               <p className="text-xs text-gray-400 -mt-2 mb-2">
-                Точечные правки с помощью текстовых инструкций.
+                Point edits using text instructions.
               </p>
 
-              {/* === ПОСЛЕ РЕДАКТОРА (когда есть превью) — здесь тоже выбор модели === */}
+              {/* === AFTER EDITOR (when preview exists) - here also model selection === */}
               {arrowMapPreviewUrl ? (
                 <div className="space-y-3">
-                  <Label title="Модель" />
+                  <Label title="Model" />
                   <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
                     {(['gemini', 'seedream'] as const).map((model) => (
                       <button
@@ -287,7 +287,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                   </div>
 
                   <div>
-                    <Label title="Карта инструкций (превью)" />
+                    <Label title="Instruction Map (Preview)" />
                     <div className="relative h-24 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
                       <Image
                         src={arrowMapPreviewUrl}
@@ -296,10 +296,10 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                         sizes="150px"
                         className="object-contain"
                       />
-                      <button 
+                      <button
                         onClick={handleResetArrowEditor}
                         className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                        title="Изменить/Убрать карту"
+                        title="Change/Remove Map"
                       >✕</button>
                     </div>
                   </div>
@@ -309,13 +309,13 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                     className="w-full text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-md py-2.5"
                     type="button"
                   >
-                    Применить правки
+                    Apply Edits
                   </button>
                 </div>
               ) : (
-                // === ДО РЕДАКТОРА — выбор модели + кнопка открытия редактора ===
+                // === BEFORE EDITOR - model selection + button to open editor ===
                 <div className="space-y-3">
-                  <Label title="Модель" />
+                  <Label title="Model" />
                   <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
                     {(['gemini', 'seedream'] as const).map((model) => (
                       <button
@@ -340,7 +340,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                     disabled={!props.activeNode}
                     className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-cyan-800 hover:bg-cyan-700 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
-                    ✍️ Открыть редактор
+                    ✍️ Open Editor
                   </button>
                 </div>
               )}

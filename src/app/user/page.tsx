@@ -8,16 +8,16 @@ export default function UserHomePage() {
     <main>
       <div className="container-narrow">
         <header className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400 text-glow">Визуализатор Саун</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400 text-glow">Sauna Visualizer</h1>
           <p className="text-gray-400 text-sm mt-1">
-            AI-рендер для Sauna Constructor 3D
+            AI renderer for Sauna Constructor 3D
           </p>
         </header>
-        
+
         {/* ВАЖНО: Мы временно вставили сюда старый ImageWorkspace.
             На следующих шагах мы создадим его user-friendly копию 
             и заменим этот импорт. */}
-        <UserImageWorkspace /> 
+        <UserImageWorkspace />
       </div>
     </main>
   );

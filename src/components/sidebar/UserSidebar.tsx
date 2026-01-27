@@ -19,14 +19,14 @@ export const UserSidebar: React.FC<UserSidebarProps> = (props) => {
 
   return (
     <aside className="bg-gray-850 border border-gray-800 rounded-xl p-4 lg:p-5 sticky top-6 h-fit">
-      
+
       {showModeSwitcher && (
         <ModeSwitcher
           activeTab={props.activeTab}
           handleTabChange={props.handleTabChange}
         />
       )}
-      
+
       {props.activeTab === 'BASE' ? (
         <>
           {/* --- ИНТЕРФЕЙС ДЛЯ БАЗОВОЙ ГЕНЕРАЦИИ --- */}
@@ -38,7 +38,7 @@ export const UserSidebar: React.FC<UserSidebarProps> = (props) => {
               onDrop={props.onDrop}
               onFileChange={props.onFileChange}
             />
-            
+
             <EnvironmentSettings
               windowView={props.windowView}
               setWindowView={props.setWindowView}
@@ -47,11 +47,11 @@ export const UserSidebar: React.FC<UserSidebarProps> = (props) => {
             />
 
             <div>
-              <Label title="Временное поле для JSON-автопромпта" />
+              <Label title="Temporary JSON Auto-Prompt Field" />
               <textarea
                 rows={5}
                 className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs font-mono placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                placeholder="Сюда будет прилетать JSON из конструктора..."
+                placeholder="JSON from constructor will arrive here..."
                 value={props.rawPrompt}
                 onChange={(e) => props.setRawPrompt(e.target.value)}
               />

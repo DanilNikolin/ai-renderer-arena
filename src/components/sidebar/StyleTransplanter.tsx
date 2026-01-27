@@ -43,7 +43,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
     if (!file) return;
 
     if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      setError('Invalid file type. Need PNG, JPEG or WebP.');
       return;
     }
     setError(null);
@@ -62,7 +62,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
 
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
-  
+
   // Шаг 2.1: Пользователь отменил кроп
   const handleCropCancel = () => {
     if (cropRequest) URL.revokeObjectURL(cropRequest);
@@ -82,7 +82,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
   }, [referenceFile]);
 
   const handleSubmit = () => {
-    if (!isReady) return; 
+    if (!isReady) return;
     onGenerate(referenceFile, selectedModel);
   };
 
@@ -91,7 +91,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
       <div className="space-y-4 pt-3">
         {/* Блок загрузки */}
         <div>
-          <Label title="Референс стиля" />
+          <Label title="Style Reference" />
           <input
             type="file"
             ref={fileInputRef}
@@ -105,22 +105,22 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
             disabled={textIsPresent}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
           >
-            {previewUrl ? 'Заменить стиль' : '+ Загрузить стиль'}
+            {previewUrl ? 'Replace Style' : '+ Upload Style'}
           </button>
 
           {previewUrl && (
             <div className="mt-3 relative h-20 w-full flex items-center justify-center rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
-                <Image
+              <Image
                 src={previewUrl}
                 alt="Style reference preview"
                 fill
                 sizes="120px"
                 className="object-contain"
               />
-              <button 
+              <button
                 onClick={() => setReferenceFile(null)}
                 className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                title="Убрать стиль"
+                title="Remove Style"
               >✕</button>
             </div>
           )}
@@ -130,7 +130,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
         {/* Блок выбора модели */}
         {!hideModelSelector && (
           <div>
-            <Label title="Модель" />
+            <Label title="Model" />
             <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
               {(['gemini', 'seedream'] as ModelForStyle[]).map(model => (
                 <button
@@ -147,25 +147,25 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
                 </button>
               ))}
             </div>
-           </div>
+          </div>
 
         )}
- 
-         <div>
-             <Label title={referenceFile ? "Уточнение (необязательно)" : "Или опишите стиль текстом"} />
-            <div className="relative">
-                <textarea
-                    rows={3}
-                    maxLength={180}
-                    value={helperPrompt}
-                    onChange={(e) => onHelperPromptChange(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                    placeholder={referenceFile ? "Пример: применить только цветовую палитру" : "Пример: стиль киберпанк, неоновое освещение"}
-                />
-                <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
-                    {helperPrompt.length}/180
-                </span>
-            </div>
+
+        <div>
+          <Label title={referenceFile ? "Clarification (optional)" : "Or describe style with text"} />
+          <div className="relative">
+            <textarea
+              rows={3}
+              maxLength={180}
+              value={helperPrompt}
+              onChange={(e) => onHelperPromptChange(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              placeholder={referenceFile ? "Example: apply color palette only" : "Example: cyberpunk style, neon lighting"}
+            />
+            <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
+              {helperPrompt.length}/180
+            </span>
+          </div>
         </div>
 
         {/* Кнопка действия */}
@@ -179,7 +179,7 @@ export const StyleTransplanter: React.FC<StyleTransplanterProps> = ({
               : "bg-gray-700 text-gray-400 cursor-not-allowed"
           )}
         >
-          {isLoading ? "Обработка..." : "Применить стиль"}
+          {isLoading ? "Processing..." : "Apply Style"}
         </button>
       </div>
 

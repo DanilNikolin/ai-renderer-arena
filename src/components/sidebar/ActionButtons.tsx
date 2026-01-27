@@ -34,9 +34,9 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
             ? "bg-cyan-600 hover:bg-cyan-500 text-white"
             : "bg-gray-700 text-gray-400 cursor-not-allowed"
         )}
-        title="Ctrl/Cmd+Enter — тоже сработает"
+        title="Ctrl/Cmd+Enter also works"
       >
-        {isLoading ? "Обработка..." : (activeTab === 'BASE' ? "Сгенерировать" : "Доработать")}
+        {isLoading ? "Processing..." : (activeTab === 'BASE' ? "Generate" : "Refine")}
       </button>
 
       <div className="flex items-center justify-between">
@@ -45,14 +45,14 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
             onClick={onCancel}
             className="text-xs text-red-400 hover:text-red-300"
           >
-            Отменить (Esc)
+            Cancel (Esc)
           </button>
         ) : (
           <button
             onClick={onClear}
             className="text-xs text-gray-400 hover:text-gray-200"
           >
-            Очистить
+            Clear
           </button>
         )}
         {sourceFile && (
@@ -64,7 +64,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
 
       {error && (
         <div className="text-red-300 text-xs bg-red-900/20 border border-red-800/40 rounded p-2">
-          <p className="font-semibold">Ошибка</p>
+          <p className="font-semibold">Error</p>
           <p>{error}</p>
         </div>
       )}

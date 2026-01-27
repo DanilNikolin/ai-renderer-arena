@@ -29,7 +29,7 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
           },
         });
         if (error) throw error;
-        setMessage("Проверьте почту для подтверждения регистрации!");
+        setMessage("Check your email to confirm registration!");
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -39,7 +39,7 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
         onSuccess?.();
       }
     } catch (err: any) {
-      setError(err.message || "Ошибка авторизации");
+      setError(err.message || "Authentication error");
     } finally {
       setLoading(false);
     }
@@ -49,7 +49,7 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
     <div className="w-full max-w-md mx-auto bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-2xl">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-white">
-          {isSignUp ? "Регистрация" : "Вход"}
+          {isSignUp ? "Sign Up" : "Sign In"}
         </h2>
         <button
           onClick={() => {
@@ -59,7 +59,7 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
           }}
           className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
         >
-          {isSignUp ? "Есть аккаунт?" : "Нет аккаунта?"}
+          {isSignUp ? "Have an account?" : "No account?"}
         </button>
       </div>
 
@@ -92,7 +92,7 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
 
         <div>
           <label className="block text-xs uppercase text-gray-500 font-semibold mb-1">
-            Пароль
+            Password
           </label>
           <input
             type="password"
@@ -128,19 +128,19 @@ export default function AuthPanel({ onSuccess }: { onSuccess?: () => void }) {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 />
               </svg>
-              Обработка...
+              Processing...
             </span>
           ) : isSignUp ? (
-            "Создать аккаунт"
+            "Create account"
           ) : (
-            "Войти"
+            "Sign In"
           )}
         </button>
       </form>
 
       <div className="mt-6 pt-6 border-t border-gray-800 text-center">
         <p className="text-xs text-gray-500">
-          Project ID создается автоматически
+          Project ID is generated automatically
         </p>
       </div>
     </div>

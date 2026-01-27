@@ -17,7 +17,7 @@ const BaseResultsTray: React.FC<{
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
-        Лоток базовых результатов (кликни для сравнения, затем отправь в PRO)
+        Base Results Tray (click to compare, then send to PRO)
       </div>
       <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
         {nodes.map((node) => {
@@ -26,7 +26,7 @@ const BaseResultsTray: React.FC<{
             <div key={node.id} className="relative group">
               <button
                 onClick={() => (isProWorkspace ? onPromote(node.id) : onSelect(node))}
-                title={isProWorkspace ? "Переключиться на этот воркспейс" : "Выбрать для сравнения"}
+                title={isProWorkspace ? "Switch to this workspace" : "Select for comparison"}
                 className={cx(
                   "relative w-full aspect-square bg-gray-900 rounded-md overflow-hidden transition-all focus:outline-none",
                   node.imageUrl === selectedUrl
@@ -43,7 +43,7 @@ const BaseResultsTray: React.FC<{
                   className="object-cover"
                 />
                 {isProWorkspace && (
-                   <div className="absolute top-0 left-0 bg-cyan-800/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">PRO</div>
+                  <div className="absolute top-0 left-0 bg-cyan-800/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">PRO</div>
                 )}
               </button>
 
@@ -64,32 +64,32 @@ const BaseResultsTray: React.FC<{
                 В PRO →
               </button>
               */}
-              
+
               {/* СТАЛО: Умные кнопки */}
               {!isProWorkspace ? (
                 <>
                   <button
                     onClick={() => onDelete(node.id)}
                     className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-red-600/80 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Удалить базовый результат"
+                    title="Delete base result"
                   >
                     ✕
                   </button>
                   <button
                     onClick={() => onPromote(node.id)}
                     className="absolute bottom-1 right-1 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Отправить в PRO"
+                    title="Send to PRO"
                   >
-                    В PRO →
+                    To PRO →
                   </button>
                 </>
               ) : (
                 <button
                   onClick={() => onDeleteWorkspace?.(node.id)}
                   className="absolute bottom-1 right-1 text-[10px] font-bold bg-red-700/90 hover:bg-red-600 text-white px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Удалить весь воркспейс"
+                  title="Delete entire workspace"
                 >
-                  Удалить PRO
+                  Delete PRO
                 </button>
               )}
             </div>
@@ -112,7 +112,7 @@ const CompareView: React.FC<{
     <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
       {!sourceUrl && (
         <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-          Загрузите скетч
+          Upload sketch
         </div>
       )}
 
@@ -192,7 +192,7 @@ const GenerationTree: React.FC<{
                   ? "ring-2 ring-cyan-500 shadow-lg shadow-cyan-500/20"
                   : "hover:ring-2 ring-gray-600"
               )}
-              title={`Выбрать узел #${node.id.slice(0, 4)}`}
+              title={`Select node #${node.id.slice(0, 4)}`}
             >
               <Image
                 src={node.imageUrl}
@@ -213,7 +213,7 @@ const GenerationTree: React.FC<{
   return (
     <div className="bg-gray-850 border border-gray-800 rounded-xl">
       <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
-        Дерево Генераций (кликни, чтобы выбрать исходник)
+        Generation Tree (click to select source)
       </div>
       <div className="p-4 overflow-x-auto">{renderBranch(null)}</div>
     </div>
@@ -289,7 +289,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-400">
-          {isLoading ? "Обработка…" : "Готово"}
+          {isLoading ? "Processing..." : "Ready"}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -297,14 +297,14 @@ export const Canvas: React.FC<CanvasProps> = ({
             disabled={!sourceFile}
             className="text-xs px-2.5 py-1.5 rounded border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
           >
-            Скачать исходник
+            Download Source
           </button>
           <button
             onClick={handleDownloadResult}
             disabled={!(activeTab === "BASE" ? selectedBaseResultUrl : activeNode)}
             className="text-xs px-2.5 py-1.5 rounded border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
           >
-            Скачать результат
+            Download Result
           </button>
         </div>
       </div>
@@ -312,8 +312,8 @@ export const Canvas: React.FC<CanvasProps> = ({
       <div className="bg-gray-850 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-3 py-2 border-b border-gray-800 text-xs text-gray-400">
           {activeTab === "BASE"
-            ? "Сравнение с исходным скетчем"
-            : `Мастерская: узел #${activeNodeId?.slice(0, 4) ?? "..."}`
+            ? "Comparison with original sketch"
+            : `Workshop: Node #${activeNodeId?.slice(0, 4) ?? "..."}`
           }
         </div>
 
@@ -330,7 +330,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           <div className="relative h-[60vh] md:h-[70vh] bg-gray-900">
             {!activeNode && (
               <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">
-                Выберите базовый результат для доработки
+                Select base result for refinement
               </div>
             )}
             {activeNode && (
@@ -364,7 +364,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           {activeHistory.length === 0 && baseResults.length > 0 && (
             <div className="bg-gray-850 border border-gray-800 rounded-xl">
               <div className="px-3 py-2 border-b border-gray-800 text-sm font-semibold text-yellow-300">
-                Шаг 1: Выберите исходник для доработки
+                Step 1: Select source for refinement
               </div>
               <BaseResultsTray
                 nodes={baseResults}
@@ -390,7 +390,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       )}
 
       <div className="text-[11px] text-gray-500">
-        Лайфхак: короткий промпт → выбери модель → Ctrl/Cmd+Enter.
+        Tip: short prompt → select model → Ctrl/Cmd+Enter.
       </div>
     </section>
   );

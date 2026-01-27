@@ -15,7 +15,7 @@ export type UniversalCropperProps = {
 };
 
 const HANDLE_SIZE_CSS = 12;
-const HANDLE_HIT_CSS  = 20;
+const HANDLE_HIT_CSS = 20;
 
 const dpr = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -28,17 +28,17 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
   onCancel,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef  = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // фон (fit) — масштаб и сдвиг
-  const imgRef     = useRef<HTMLImageElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [imgReady, setImgReady] = useState(false);
-  const imgFitRef  = useRef<{ scale: number; x: number; y: number; w: number; h: number }>({
+  const imgFitRef = useRef<{ scale: number; x: number; y: number; w: number; h: number }>({
     scale: 1, x: 0, y: 0, w: 0, h: 0
   });
 
   // рамка
-  const selRef     = useRef<Rect | null>(null);
+  const selRef = useRef<Rect | null>(null);
 
   // drag state
   const dragRef = useRef<{
@@ -52,7 +52,7 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => { imgRef.current = img; setImgReady(true); };
-    img.onerror = () => { imgRef.current = null; setImgReady(false); alert('Не удалось загрузить изображение'); };
+    img.onerror = () => { imgRef.current = null; setImgReady(false); alert('Failed to load image'); };
     img.src = imageSrc;
     return () => { imgRef.current = null; setImgReady(false); };
   }, [imageSrc]);
@@ -63,22 +63,22 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
 
   const getCanvasPoint = (e: PointerEvent | React.PointerEvent): Vec2 => {
     const canvas = canvasRef.current!;
-    const rect   = canvas.getBoundingClientRect();
-    const ratio  = dpr();
+    const rect = canvas.getBoundingClientRect();
+    const ratio = dpr();
     return { x: (e.clientX - rect.left) * ratio, y: (e.clientY - rect.top) * ratio };
   };
 
   const handleHit = (p: Vec2): DragMode => {
     const sel = selRef.current!;
     const ratio = dpr();
-    const hs   = HANDLE_HIT_CSS * ratio;
+    const hs = HANDLE_HIT_CSS * ratio;
     const half = Math.round(hs / 2);
 
     const tests: { mode: DragMode; cx: number; cy: number }[] = [
-      { mode: 'resize-nw', cx: sel.x,         cy: sel.y },
+      { mode: 'resize-nw', cx: sel.x, cy: sel.y },
       { mode: 'resize-ne', cx: sel.x + sel.w, cy: sel.y },
       { mode: 'resize-se', cx: sel.x + sel.w, cy: sel.y + sel.h },
-      { mode: 'resize-sw', cx: sel.x,         cy: sel.y + sel.h },
+      { mode: 'resize-sw', cx: sel.x, cy: sel.y + sel.h },
     ];
 
     for (const t of tests) {
@@ -155,10 +155,10 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     const hs = HANDLE_SIZE_CSS * ratio;
     const half = Math.round(hs / 2);
     const corners: Vec2[] = [
-      { x: sel.x,           y: sel.y           },
-      { x: sel.x + sel.w,   y: sel.y           },
-      { x: sel.x + sel.w,   y: sel.y + sel.h   },
-      { x: sel.x,           y: sel.y + sel.h   },
+      { x: sel.x, y: sel.y },
+      { x: sel.x + sel.w, y: sel.y },
+      { x: sel.x + sel.w, y: sel.y + sel.h },
+      { x: sel.x, y: sel.y + sel.h },
     ];
     ctx.fillStyle = '#22d3ee';
     for (const c of corners) {
@@ -168,25 +168,25 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
   };
 
   const resizeAll = () => {
-    const canvas  = canvasRef.current!;
+    const canvas = canvasRef.current!;
     const wrapper = wrapperRef.current!;
-    const ratio   = dpr();
+    const ratio = dpr();
 
     const rect = wrapper.getBoundingClientRect();
     // немного воздуха для кнопок
     const cssW = Math.max(320, rect.width);
     const cssH = Math.max(260, rect.height - 56);
 
-    canvas.width  = Math.round(cssW * ratio);
+    canvas.width = Math.round(cssW * ratio);
     canvas.height = Math.round(cssH * ratio);
-    canvas.style.width  = `${cssW}px`;
+    canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
 
     const img = imgRef.current!;
-    const s  = Math.min(canvas.width / img.width, canvas.height / img.height);
+    const s = Math.min(canvas.width / img.width, canvas.height / img.height);
     const iw = Math.round(img.width * s);
     const ih = Math.round(img.height * s);
-    const ix = Math.round((canvas.width  - iw) / 2);
+    const ix = Math.round((canvas.width - iw) / 2);
     const iy = Math.round((canvas.height - ih) / 2);
     imgFitRef.current = { scale: s, x: ix, y: iy, w: iw, h: ih };
 
@@ -342,7 +342,7 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
     const fit = imgFitRef.current;
 
     // перевод из canvas/backing в пиксели оригинала
-    const s  = fit.scale;
+    const s = fit.scale;
     const sx = Math.round((sel.x - fit.x) / s);
     const sy = Math.round((sel.y - fit.y) / s);
     const sw = Math.round(sel.w / s);
@@ -350,11 +350,11 @@ export const UniversalCropper: React.FC<UniversalCropperProps> = ({
 
     const csx = clamp(sx, 0, img.width);
     const csy = clamp(sy, 0, img.height);
-    const csw = clamp(sw - (csx - sx), 1, img.width  - csx);
+    const csw = clamp(sw - (csx - sx), 1, img.width - csx);
     const csh = clamp(sh - (csy - sy), 1, img.height - csy);
 
     const out = document.createElement('canvas');
-    out.width  = csw;
+    out.width = csw;
     out.height = csh;
     const ctx = out.getContext('2d')!;
     ctx.imageSmoothingEnabled = true;

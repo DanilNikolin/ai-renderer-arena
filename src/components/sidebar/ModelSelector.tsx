@@ -13,7 +13,7 @@ const MODELS: Model[] = ["flux", "qwen", "seedream", "gemini"];
 export const ModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, setSelectedModel }) => {
   return (
     <div className="mt-5 space-y-2">
-      <h3 className="text-xs text-gray-300 mb-1.5">Модель</h3>
+      <h3 className="text-xs text-gray-300 mb-1.5">Model</h3>
       <div className="grid grid-cols-4 gap-2">
         {MODELS.map((m) => {
           const isActive = selectedModel === m;

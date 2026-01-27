@@ -304,13 +304,13 @@ export const MultiArrowEditor: React.FC<{
       {/* Верхняя панель */}
       <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-4">
-          <p className="text-slate-200 text-sm">Расставьте до 5 указателей с инструкциями</p>
+          <p className="text-slate-200 text-sm">Place up to 5 pointers with instructions</p>
           <button
             onClick={addArrow}
             disabled={arrows.length >= 5}
             className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:bg-gray-800 disabled:text-gray-500"
           >
-            + Добавить стрелку ({arrows.length}/5)
+            + Add arrow ({arrows.length}/5)
           </button>
         </div>
         <div className="flex gap-2">
@@ -318,13 +318,13 @@ export const MultiArrowEditor: React.FC<{
             onClick={onCancel}
             className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
           >
-            Отмена
+            Cancel
           </button>
           <button
             onClick={handleConfirm}
             className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
           >
-            Подтвердить
+            Confirm
           </button>
         </div>
       </div>
@@ -360,7 +360,7 @@ export const MultiArrowEditor: React.FC<{
                   onChange={(e) => handleTextChange(arrow.id, e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
-                  placeholder="Инструкция..."
+                  placeholder="Instruction..."
                   maxLength={TOKEN_LIMIT_CHARS}
                   className="absolute top-[105%] left-1/2 -translate-x-1/2 w-[120%] min-h-[40px] p-1 text-center bg-black/60 text-white text-xs rounded-md border border-cyan-500/50 resize-none"
                 />
@@ -375,7 +375,7 @@ export const MultiArrowEditor: React.FC<{
         {selectedArrow ? (
           <>
             <label className="text-xs text-slate-300">
-              Размер:{' '}
+              Size:{' '}
               <input
                 type="range"
                 min="30"
@@ -386,7 +386,7 @@ export const MultiArrowEditor: React.FC<{
               />
             </label>
             <label className="text-xs text-slate-300">
-              Поворот:{' '}
+              Rotation:{' '}
               <input
                 type="range"
                 min="0"
@@ -402,11 +402,11 @@ export const MultiArrowEditor: React.FC<{
               onClick={deleteSelectedArrow}
               className="rounded bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
             >
-              Удалить
+              Delete
             </button>
           </>
         ) : (
-          <p className="text-xs text-gray-500">Выберите стрелку, чтобы изменить её</p>
+          <p className="text-xs text-gray-500">Select an arrow to edit</p>
         )}
       </div>
     </div>,

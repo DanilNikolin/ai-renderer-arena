@@ -34,7 +34,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="mt-10 flex flex-col items-center gap-2 text-sm text-gray-400">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent" />
-        Проверяем сессию…
+        Checking session…
       </div>
     );
   }

@@ -535,7 +535,7 @@ export function useImageWorkspace() {
     textureFile: File,
     model: "gemini" | "seedream"
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!activeNode) return fail("No active node for refinement.");
     setIsLoading(true);
     setError(null);
     abortControllerRef.current = new AbortController();
@@ -577,7 +577,7 @@ Crucially:
         model,
         settings,
       };
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -585,9 +585,9 @@ Crucially:
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
-      } else setError("Неизвестная ошибка при генерации.");
+      } else setError("Unknown generation error.");
     } finally {
       setIsLoading(false);
     }
@@ -598,7 +598,7 @@ Crucially:
     referenceObjectFile: File,
     helperPrompt: string
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!activeNode) return fail("No active node for refinement.");
 
     const model = 'gemini';
 
@@ -635,7 +635,7 @@ Crucially:
         settings,
       };
 
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -643,7 +643,7 @@ Crucially:
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
       }
     } finally {
@@ -655,7 +655,7 @@ Crucially:
     referenceFile: File | null,
     model: "gemini" | "seedream"
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!activeNode) return fail("No active node for refinement.");
     const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
@@ -685,7 +685,7 @@ Crucially:
       promptText = `Redraw the source image to perfectly match the following style: "${userClarification}".
 CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. The final result must match the described style down to the smallest detail in terms of color, lighting, and texture.`;
     } else {
-      return fail("Не указан ни файл-референс, ни текстовое описание стиля.");
+      return fail("No reference file or text style description provided.");
     }
 
     let sourceImageFile: File;
@@ -694,7 +694,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       const blob = await response.blob();
       sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
     } catch {
-      return fail("Не удалось загрузить изображение из активного узла.");
+      return fail("Failed to load active node image.");
     }
 
     settingsManager.updateSeedForGeneration();
@@ -723,7 +723,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
         model,
         settings,
       };
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -731,9 +731,9 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
-      } else setError("Неизвестная ошибка при генерации.");
+      } else setError("Unknown generation error.");
     } finally {
       setIsLoading(false);
     }
@@ -744,7 +744,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     targets: { window: boolean; door: boolean },
     model: "gemini" | "seedream"
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!activeNode) return fail("No active node for refinement.");
     const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
@@ -763,7 +763,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     if (targets.window) areas.push("the windows");
     if (targets.door) areas.push("the glass door");
     const promptTarget = areas.join(" and ");
-    if (!promptTarget) return fail("Не выбраны цели для замены фона.");
+    if (!promptTarget) return fail("No background replacement targets selected.");
 
     // (Пациент №2): замена блока на явный promptText
     let promptText: string;
@@ -777,7 +777,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     } else if (userClarification) {
       promptText = `In the source image, replace the background seen through ${promptTarget} with the following scene: "${userClarification}". Make it photorealistic and organically integrated. Adapt the lighting and color tones inside the sauna to realistically match the new background. Preserve the original sauna's interior geometry.`;
     } else {
-      return fail("Не указан ни файл-референс, ни текстовое описание фона.");
+      return fail("No reference file or text background description provided.");
     }
 
     let sourceImageFile: File;
@@ -786,7 +786,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       const blob = await response.blob();
       sourceImageFile = new File([blob], "pro_source.png", { type: blob.type });
     } catch {
-      return fail("Не удалось загрузить изображение из активного узла.");
+      return fail("Failed to load active node image.");
     }
 
     settingsManager.updateSeedForGeneration();
@@ -815,7 +815,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
         model,
         settings,
       };
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -823,9 +823,9 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
-      } else setError("Неизвестная ошибка при генерации.");
+      } else setError("Unknown generation error.");
     } finally {
       setIsLoading(false);
     }
@@ -836,7 +836,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     objectFile: File,
     model: "gemini" | "seedream"
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
+    if (!activeNode) return fail("No active node for refinement.");
     const getDimsFromUrl = (url: string): Promise<{ w: number; h: number }> =>
       new Promise((res, rej) => {
         const img = new Image();
@@ -885,7 +885,7 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
         model,
         settings,
       };
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -893,9 +893,9 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
-      } else setError("Неизвестная ошибка при генерации.");
+      } else setError("Unknown generation error.");
     } finally {
       setIsLoading(false);
     }
@@ -906,8 +906,8 @@ CRITICAL RULE: Preserve ONLY the geometry and composition of the source image. T
     instructionsText: string,
     model: "gemini" | "seedream"
   ) => {
-    if (!activeNode) return fail("Нет активного узла для доработки.");
-    if (!instructionsText.trim()) return fail("Нет инструкций для выполнения.");
+    if (!activeNode) return fail("No active node for refinement.");
+    if (!instructionsText.trim()) return fail("No instructions provided.");
 
     setIsLoading(true);
     setError(null);
@@ -975,7 +975,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
         model,
         settings,
       };
-      if (!activeWorkspaceId) return fail("Критическая ошибка: нет активного воркспейса.");
+      if (!activeWorkspaceId) return fail("Critical error: no active workspace.");
       setWorkspaces((prev) => ({
         ...prev,
         [activeWorkspaceId]: [...(prev[activeWorkspaceId] ?? []), newNode],
@@ -983,9 +983,9 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
       setActiveNodeId(newNode.id);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
-      } else setError("Неизвестная ошибка при генерации.");
+      } else setError("Unknown generation error.");
     } finally {
       setIsLoading(false);
     }
@@ -1055,10 +1055,10 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
       setShowRefiner(false);
     } catch (error) {
       if (error instanceof Error) {
-        if (error.name === "AbortError") setRefineError("Улучшение отменено.");
+        if (error.name === "AbortError") setRefineError("Refining cancelled.");
         else setRefineError(error.message);
       } else {
-        setRefineError("Произошла неизвестная ошибка.");
+        setRefineError("Unknown error occurred.");
       }
     } finally {
       setIsRefining(false);
@@ -1074,10 +1074,10 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
     let currentImageFile: File;
     let parentId: string | null = null;
     if (activeTab === "BASE") {
-      if (!sourceFile) return fail("Нет исходного файла.");
+      if (!sourceFile) return fail("No source file.");
       currentImageFile = sourceFile;
     } else {
-      if (!activeNode) return fail("Нет активного узла.");
+      if (!activeNode) return fail("No active node.");
       parentId = activeNodeId;
       try {
         const response = await fetch(activeNode.imageUrl);
@@ -1086,7 +1086,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
           type: blob.type,
         });
       } catch {
-        return fail("Не удалось загрузить изображение из активного узла.");
+        return fail("Failed to load active node image.");
       }
     }
 
@@ -1143,7 +1143,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
         setCompareSourceUrl(newNode.sourceImageUrl);
 
       } else { // Для PRO-режима
-        if (!activeWorkspaceId) return fail("Критическая ошибка: нет воркспейса.");
+        if (!activeWorkspaceId) return fail("Critical error: no workspace.");
 
         // <<< 1. Создаем новый объект воркспейсов
         const newWorkspaces = {
@@ -1176,10 +1176,10 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
       }
     } catch (e) {
       if (e instanceof Error) {
-        if (e.name === "AbortError") setError("Генерация отменена.");
+        if (e.name === "AbortError") setError("Generation cancelled.");
         else setError(e.message);
       } else {
-        setError("Неизвестная ошибка при генерации.");
+        setError("Unknown generation error.");
       }
     } finally {
       setIsLoading(false);
@@ -1211,7 +1211,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
   const onCancel = () => {
     abortControllerRef.current?.abort();
     setIsLoading(false);
-    setError("Генерация отменена.");
+    setError("Generation cancelled.");
   };
 
   const handleTabChange = (tab: "BASE" | "PRO") => {
@@ -1230,7 +1230,7 @@ CRITICAL: After applying all edits, you MUST remove all red arrows, numbers, and
   const handlePromoteToPro = (nodeId: string) => {
     const nodeToPromote = baseResults.find((node) => node.id === nodeId);
     if (!nodeToPromote)
-      return fail("Критическая ошибка: не найден базовый узел для 'продвижения'.");
+      return fail("Critical error: base node for promotion not found.");
 
     if (workspaces[nodeId]) {
       const history = workspaces[nodeId];

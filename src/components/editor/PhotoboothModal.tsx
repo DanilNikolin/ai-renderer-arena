@@ -69,7 +69,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
     img.crossOrigin = 'anonymous';
     img.onload = () => setSaunaDims({ w: img.naturalWidth, h: img.naturalHeight });
     img.onerror = () => {
-      console.error('Не удалось загрузить фоновое изображение.');
+      console.error('Failed to load background image.');
       setSaunaDims({ w: 1024, h: 1024 });
     };
     img.src = saunaImageUrl;
@@ -91,7 +91,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         const pivot = pivotRef.current;
 
         if (!renderer || !scene || !camera || !controls || !pivot || !transformControlsRef.current) {
-          console.error('Не удалось сделать снимок: отсутствуют обязательные объекты.');
+          console.error('Failed to take snapshot: missing required objects.');
           return;
         }
 
@@ -240,7 +240,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
       scene.add(transformControls as unknown as THREE.Object3D);
 
       // конфликт drag vs orbit
-      
+
       // конфликт drag vs orbit
       const onDrag = (event: DraggingChangedEvent) => {
         if (controls) controls.enabled = !event.value;
@@ -265,7 +265,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
             scene.background = tex;
           },
           undefined,
-          (err) => console.warn('Не удалось загрузить фон:', err)
+          (err) => console.warn('Failed to load background:', err)
         );
       } else {
         scene.background = null;
@@ -302,8 +302,8 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
       };
 
       const onError = (error: unknown) => {
-        console.error('Ошибка загрузки модели:', error);
-        alert('Не удалось загрузить 3D модель.');
+        console.error('Error loading model:', error);
+        alert('Failed to load 3D model.');
       }
 
       const fileName = modelFile.name.toLowerCase();
@@ -314,7 +314,7 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
         const loader = new OBJLoader();
         loader.load(modelUrl, onModelLoad, undefined, onError);
       } else {
-        onError(new Error(`Неподдерживаемый формат файла: ${fileName}`));
+        onError(new Error(`Unsupported file format: ${fileName}`));
       }
 
       // Рендер-цикл
@@ -422,19 +422,19 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex flex-col p-4 bg-black/80 backdrop-blur-sm isolation-isolate">
       <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
-        <p className="text-slate-200 text-sm">Настройте ракурс для 2D-снимка модели</p>
+        <p className="text-slate-200 text-sm">Adjust angle for 2D model snapshot</p>
         <div className="flex gap-2">
           <button
             onClick={onCancel}
             className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
           >
-            Отмена (Esc)
+            Cancel (Esc)
           </button>
           <button
             onClick={handleConfirm}
             className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
           >
-            Сделать снимок (Enter)
+            Take Snapshot (Enter)
           </button>
         </div>
       </div>

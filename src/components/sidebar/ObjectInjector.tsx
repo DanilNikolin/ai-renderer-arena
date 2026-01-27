@@ -105,11 +105,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
       setError(null);
       try {
         const res = await fetch('/api/library/assets?type=2d_object');
-        if (!res.ok) throw new Error('Не удалось загрузить библиотеку');
+        if (!res.ok) throw new Error('Failed to load library');
         const data: LibraryAsset[] = await res.json();
         setLibraryAssets(Array.isArray(data) ? data : []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Ошибка загрузки');
+        setError(e instanceof Error ? e.message : 'Load error');
       } finally {
         setIsLoadingLibrary(false);
       }
@@ -128,7 +128,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
     setError(null);
     try {
       const res = await fetch(asset.fileUrl);
-      if (!res.ok) throw new Error('Не удалось скачать ассет');
+      if (!res.ok) throw new Error('Failed to download asset');
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -138,7 +138,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
       // вернемся на вкладку upload, чтобы логика и превью были как обычно
       setMode('upload');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка');
+      setError(e instanceof Error ? e.message : 'Error');
     }
   };
 
@@ -151,7 +151,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
     if (!file) return;
 
     if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-      setError('Неверный тип файла. Нужен PNG, JPEG или WebP.');
+      setError('Invalid file type. Need PNG, JPEG or WebP.');
       return;
     }
     setError(null);
@@ -201,7 +201,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
       <div className="space-y-4 pt-3">
         {/* Блок 1: Загрузка Объекта */}
         <div>
-          <Label title="1. Загрузите объект" />
+          <Label title="1. Upload Object" />
 
           {/* Табы: свой файл / библиотека */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-gray-900 border border-gray-700 rounded-lg mb-3">
@@ -213,7 +213,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               )}
               type="button"
             >
-              Загрузить свой
+              Upload Own
             </button>
             <button
               onClick={() => setMode('library')}
@@ -223,7 +223,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               )}
               type="button"
             >
-              Библиотека
+              Library
             </button>
           </div>
 
@@ -242,7 +242,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
               >
-                {objectPreview ? 'Заменить объект' : '+ Выбрать объект'}
+                {objectPreview ? 'Replace Object' : '+ Select Object'}
               </button>
               {objectPreview && (
                 <div className="mt-3 relative h-20 w-full rounded-lg border border-gray-700 bg-gray-950 overflow-hidden">
@@ -256,7 +256,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
                   <button
                     onClick={() => setObjectFile(null)}
                     className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                    title="Убрать объект"
+                    title="Remove Object"
                     type="button"
                   >
                     ✕
@@ -270,11 +270,11 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           {mode === 'library' && (
             <div className="p-2 bg-gray-900 border border-gray-700 rounded-lg">
               {isLoadingLibrary && (
-                <p className="text-xs text-gray-400 text-center py-4">Загрузка...</p>
+                <p className="text-xs text-gray-400 text-center py-4">Loading...</p>
               )}
               {!isLoadingLibrary && libraryAssets.length === 0 && (
                 <p className="text-xs text-gray-500 text-center py-4">
-                  Библиотека 2D-объектов пуста.
+                  2D Object Library is empty.
                 </p>
               )}
               <div className="grid grid-cols-4 gap-2 max-h-[150px] overflow-y-auto">
@@ -304,14 +304,14 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
 
         {/* Блок 2: Указание Цели */}
         <div>
-          <Label title="2. Укажите место на фото" />
+          <Label title="2. Indicate Place on Photo" />
           <button
             type="button"
             onClick={() => setIsPointerEditorOpen(true)}
             disabled={!activeImageUrl}
             className="w-full text-sm font-semibold py-2.5 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
           >
-            {targetMapPreview ? 'Изменить указатель' : '🎯 Поставить указатель'}
+            {targetMapPreview ? 'Change Pointer' : '🎯 Place Pointer'}
           </button>
           {targetMapPreview && (
             <div className="mt-3 relative h-20 w-full rounded-lg border border-cyan-700 bg-gray-950 overflow-hidden">
@@ -325,7 +325,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               <button
                 onClick={() => setTargetMapFile(null)}
                 className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center text-xs font-bold bg-red-700/80 hover:bg-red-600 text-white rounded-full transition"
-                title="Убрать указатель"
+                title="Remove Pointer"
                 type="button"
               >
                 ✕
@@ -339,7 +339,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
         {/* Блок выбора модели */}
         {!hideModelSelector && (
           <div>
-            <Label title="Модель" />
+            <Label title="Model" />
             <div className="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg border border-gray-700">
               {(['gemini', 'seedream'] as const).map((model) => (
                 <button
@@ -360,7 +360,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
 
         {/* Уточнение (optional) */}
         <div>
-          <Label title="Уточнение (необязательно)" />
+          <Label title="Clarification (optional)" />
           <div className="relative">
             <textarea
               rows={2}
@@ -368,7 +368,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
               value={helperPrompt}
               onChange={(e) => onHelperPromptChange(e.target.value)}
               className="w-full bg-gray-900 border border-gray-800 rounded-lg p-2 pr-12 text-xs placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-              placeholder="Пример: поместить ведро справа от печки"
+              placeholder="Example: place bucket to the right of the stove"
             />
             <span className="absolute bottom-2 right-2 text-[10px] text-gray-500">
               {helperPrompt.length}/180
@@ -386,7 +386,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
           )}
           type="button"
         >
-          {isLoading ? 'Обработка...' : 'Внедрить Объект'}
+          {isLoading ? 'Processing...' : 'Inject Object'}
         </button>
       </div>
 

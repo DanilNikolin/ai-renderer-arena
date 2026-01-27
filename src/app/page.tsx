@@ -8,7 +8,7 @@ export default function HomePage() {
         <header className="mb-6">
           <h1 className="text-2xl md:text-3xl font-bold text-cyan-400 text-glow">AI Renderer Arena</h1>
           <p className="text-gray-400 text-sm mt-1">
-            Instruction-Based Image Editing • аккуратно и без лишнего растягивания
+            Instruction-Based Image Editing • Precise and distortion-free
           </p>
         </header>
 

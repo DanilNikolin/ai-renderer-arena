@@ -125,7 +125,7 @@ export const ArrowPointer: React.FC<{
     // Вычисляем реальные отступы холста внутри родительского контейнера
     const offsetX = canvasRect.left - parentRect.left;
     const offsetY = canvasRect.top - parentRect.top;
-    
+
     // Вычисляем масштабный коэффициент
     const scaleX = img.width / canvasRect.width;
     const scaleY = img.height / canvasRect.height;
@@ -190,19 +190,19 @@ export const ArrowPointer: React.FC<{
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex flex-col p-4 bg-black/80 backdrop-blur-sm">
       <div className="flex-shrink-0 mb-2 flex items-center justify-between gap-2">
-        <p className="text-slate-200 text-sm">Перетащи стрелку, чтобы указать цель</p>
+        <p className="text-slate-200 text-sm">Drag arrow to indicate target</p>
         <div className="flex gap-2">
           <button
             onClick={onCancel}
             className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700"
           >
-            Отмена
+            Cancel
           </button>
           <button
             onClick={handleConfirm}
             className="rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400"
           >
-            Подтвердить
+            Confirm
           </button>
         </div>
       </div>
@@ -242,7 +242,7 @@ export const ArrowPointer: React.FC<{
 
       <div className="flex-shrink-0 mt-2 flex items-center justify-center gap-4 bg-slate-900/50 p-2 rounded-lg">
         <label className="text-xs text-slate-300">
-          Размер:{' '}
+          Size:{' '}
           <input
             type="range"
             min="30"
@@ -253,7 +253,7 @@ export const ArrowPointer: React.FC<{
           />
         </label>
         <label className="text-xs text-slate-300">
-          Поворот:{' '}
+          Rotation:{' '}
           <input
             type="range"
             min="0"

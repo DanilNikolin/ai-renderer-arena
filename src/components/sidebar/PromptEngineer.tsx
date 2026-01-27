@@ -83,18 +83,18 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
         className="w-full text-left text-sm font-medium text-cyan-400"
       >
         {showRefiner
-          ? "▼ Скрыть «Промпт-Инженер»"
-          : "► Открыть «Промпт-Инженер»"}
+          ? "▼ Hide 'Prompt Engineer'"
+          : "► Open 'Prompt Engineer'"}
       </button>
       {showRefiner && (
         <div className="pt-2 space-y-4">
           <div>
-            <Label title="1. Сообщение для LLM" />
+            <Label title="1. Message for LLM" />
             <textarea
               rows={3}
               className={`w-full bg-gray-900 border ${isDragging ? "border-cyan-500 bg-gray-800" : "border-gray-800"
                 } rounded-lg p-3 text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors`}
-              placeholder="Опиши задачу или перетащи текстовый файл..."
+              placeholder="Describe the task or drag & drop a text file..."
               value={rawPrompt}
               onChange={(e) => setRawPrompt(e.target.value)}
               onDragOver={onDragOver}
@@ -104,7 +104,7 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
           </div>
 
           <div>
-            <Label title="2. Системный промпт для LLM" />
+            <Label title="2. System Prompt for LLM" />
             <textarea
               name="systemPrompt"
               rows={6}
@@ -116,7 +116,7 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label title="Модель" />
+              <Label title="Model" />
               <div className="flex items-center gap-2 rounded-lg bg-gray-950 p-1">
                 {(["gpt-5-mini", "gpt-5-nano"] as const).map((model) => (
                   <button
@@ -139,7 +139,7 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
               </div>
             </div>
             <label className="flex flex-col justify-end items-start gap-2 text-xs text-gray-400 cursor-pointer">
-              <Label title="Контекст" />
+              <Label title="Context" />
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -148,7 +148,7 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
                   className="accent-cyan-500"
                   disabled={!sourceFile}
                 />
-                Отправить картинку
+                Send image
               </div>
             </label>
           </div>
@@ -189,7 +189,7 @@ export const PromptEngineer: React.FC<PromptEngineerProps> = ({
               disabled={!rawPrompt.trim() || isRefining}
               className="w-full px-3 py-2 text-sm font-semibold rounded-md bg-cyan-700 hover:bg-cyan-600 text-white disabled:bg-gray-600 disabled:cursor-not-allowed"
             >
-              {isRefining ? "Улучшаю..." : "✓ Улучшить и применить промпт"}
+              {isRefining ? "Refining..." : "✓ Refine and apply prompt"}
             </button>
           </div>
 
