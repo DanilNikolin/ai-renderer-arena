@@ -173,7 +173,7 @@ export const BackgroundReplacer: React.FC<BackgroundReplacerProps> = ({
                       : 'text-gray-400 hover:bg-gray-800'
                   )}
                 >
-                  {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  {model === 'gemini' ? 'Nano Banana Pro' : 'SeeDream v4.5'}
                 </button>
               ))}
             </div>

@@ -238,7 +238,13 @@ export function useImageWorkspace() {
         const j = await res.json();
 
         if (!res.ok) {
-          console.error("Upload failed:", j);
+          const errorMsg = j.error || JSON.stringify(j);
+          console.error("Upload failed (server response):", errorMsg);
+          // Optional: You could set an error state here to show in the UI
+          // setUploadError(errorMsg);
+          if (j.error === "Unauthorized") {
+            // Handle unauthorized explicitly if needed
+          }
           return;
         }
         if (!cancelled) {

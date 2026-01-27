@@ -281,7 +281,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                             : 'text-gray-400 hover:bg-gray-800'
                         )}
                       >
-                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                        {model === 'gemini' ? 'Nano Banana Pro' : 'SeeDream v4.5'}
                       </button>
                     ))}
                   </div>
@@ -329,7 +329,7 @@ export const ProTools: React.FC<ProToolsProps> = (props) => {
                             : 'text-gray-400 hover:bg-gray-800'
                         )}
                       >
-                        {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                        {model === 'gemini' ? 'Nano Banana Pro' : 'SeeDream v4.5'}
                       </button>
                     ))}
                   </div>

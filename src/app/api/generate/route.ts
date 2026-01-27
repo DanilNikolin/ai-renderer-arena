@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const detectedSize = await getImageSizeFromBuffer(imageBuffer);
 
     if (!detectedSize) {
-        return NextResponse.json({ error: "Не удалось прочитать размеры изображения" }, { status: 400 });
+      return NextResponse.json({ error: "Не удалось прочитать размеры изображения" }, { status: 400 });
     }
 
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
@@ -90,31 +90,31 @@ export async function POST(req: NextRequest) {
     let endpointUrl: string;
     switch (model) {
       case "qwen":
-      case "flux":
-        endpointUrl = model === "qwen"
-          ? "https://fal.run/fal-ai/qwen-image-edit"
-          : "https://fal.run/fal-ai/flux-pro/kontext";
+        endpointUrl = "https://fal.run/fal-ai/qwen-image-edit";
         body.image_url = await fileToDataUrl(imageFile);
         if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
-        if (model === "qwen") {
-          if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
-          // Жестко прокидываем размер, чтобы Qwen не ресайзил
-          body.image_size = {
-              width: detectedSize.width,
-              height: detectedSize.height,
-          };
-        }
-       
+        if (settings.num_inference_steps != null) body.num_inference_steps = settings.num_inference_steps;
+        // Жестко прокидываем размер, чтобы Qwen не ресайзил
+        body.image_size = {
+          width: detectedSize.width,
+          height: detectedSize.height,
+        };
+        if (settings.seed != null) body.seed = settings.seed;
+        break;
 
-        if (model === "flux" && settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
+      case "flux":
+        endpointUrl = "https://fal.run/fal-ai/flux-2-pro/edit";
+        body.image_urls = [await fileToDataUrl(imageFile)];
+        if (settings.guidance_scale != null) body.guidance_scale = settings.guidance_scale;
+        if (settings.safety_tolerance != null) body.safety_tolerance = settings.safety_tolerance;
         if (settings.seed != null) body.seed = settings.seed;
         break;
 
       case "gemini":
       case "seedream":
         endpointUrl = model === "gemini"
-          ? "https://fal.run/fal-ai/nano-banana/edit"
-          : "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
+          ? "https://fal.run/fal-ai/nano-banana-pro/edit"
+          : "https://fal.run/fal-ai/bytedance/seedream/v4.5/edit";
         const imageUrls = [await fileToDataUrl(imageFile)];
         if (referenceImageFile) imageUrls.push(await fileToDataUrl(referenceImageFile));
         body.image_urls = imageUrls;
@@ -175,16 +175,16 @@ export async function POST(req: NextRequest) {
       e instanceof Error
         ? e.message
         : (() => {
-            try { return JSON.stringify(e); } catch { return String(e); }
-          })();
-  
+          try { return JSON.stringify(e); } catch { return String(e); }
+        })();
+
     // log stack when available
     if (e instanceof Error && e.stack) {
       console.error("Server-side error:", e.stack);
     } else {
       console.error("Server-side error:", msg);
     }
-  
+
     return NextResponse.json({ error: msg || "Internal error" }, { status: 500 });
   }
 }

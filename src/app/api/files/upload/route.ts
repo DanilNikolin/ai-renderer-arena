@@ -1,7 +1,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/guard";
-import { uploadBuffer, contentTypeFor } from "@/lib/storage";
+import { uploadBuffer, contentTypeFor, sanitizeFilename } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -16,8 +16,16 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (!process.env.S3_ENDPOINT || !process.env.S3_BUCKET || !process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY) {
+      console.error("Missing S3 configuration");
+      return NextResponse.json({ error: "Server misconfiguration: S3 environment variables missing" }, { status: 500 });
+    }
+
     const buf = Buffer.from(await file.arrayBuffer());
-    const safeName = file.name?.replace(/\s+/g, "_") || "source.png";
+    let safeName = sanitizeFilename(file.name || "source.png");
+    if (!safeName || safeName.trim() === "") {
+      safeName = "source.png";
+    }
     const key = `${auth.pid}/sources/${Date.now()}_${safeName}`;
     const contentType = file.type || contentTypeFor(safeName);
 

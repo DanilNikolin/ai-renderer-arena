@@ -351,7 +351,7 @@ export const ObjectInjector: React.FC<ObjectInjectorProps> = ({
                   )}
                   type="button"
                 >
-                  {model === 'gemini' ? 'Nano Banana' : 'SeeDream'}
+                  {model === 'gemini' ? 'Nano Banana Pro' : 'SeeDream v4.5'}
                 </button>
               ))}
             </div>

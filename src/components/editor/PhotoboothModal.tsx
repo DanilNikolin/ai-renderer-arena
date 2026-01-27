@@ -440,6 +440,31 @@ export const PhotoboothModal: React.FC<PhotoboothModalProps> = ({
       </div>
       <div className="flex-1 min-h-0 relative flex items-center justify-center">
         <div ref={mountRef} className="w-full h-full rounded-md border border-gray-700" />
+
+        {/* Controls Guide Overlay */}
+        <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 text-xs text-slate-300 pointer-events-none select-none border border-white/10">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-bold text-cyan-400">🖱️ Controls:</span>
+          </div>
+          <ul className="space-y-1">
+            <li className="flex items-center gap-2">
+              <span className="w-4 h-4 flex items-center justify-center bg-white/10 rounded text-[10px]">L</span>
+              <span>Rotate Object</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="w-4 h-4 flex items-center justify-center bg-white/10 rounded text-[10px]">R</span>
+              <span>Pan Camera</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="w-4 h-4 flex items-center justify-center bg-white/10 rounded text-[10px]">M</span>
+              <span>Move Object</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="w-4 h-4 flex items-center justify-center bg-white/10 rounded text-[10px]">↕</span>
+              <span>Zoom In/Out</span>
+            </li>
+          </ul>
+        </div>
       </div>
     </div>,
     document.body

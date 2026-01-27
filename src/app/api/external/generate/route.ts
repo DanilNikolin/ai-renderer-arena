@@ -334,8 +334,8 @@ export async function POST(req: NextRequest) {
       }
 
 
-    // Priority: If the user has submitted width/height, respect them.
-	// Otherwise, fallback to detectedSize.
+      // Priority: If the user has submitted width/height, respect them.
+      // Otherwise, fallback to detectedSize.
       if (bodyJSON.image_size) {
         sourceImageSize = bodyJSON.image_size;
       } else if (detectedSize) {
@@ -434,13 +434,13 @@ export async function POST(req: NextRequest) {
     // ---- enforce our defaults (guidance=4, steps=30, seed=random) ----
     const effGuidance =
       typeof bodyJSON.guidance_scale === "number" &&
-      Number.isFinite(bodyJSON.guidance_scale)
+        Number.isFinite(bodyJSON.guidance_scale)
         ? bodyJSON.guidance_scale
         : 4;
 
     const effSteps =
       typeof bodyJSON.num_inference_steps === "number" &&
-      Number.isFinite(bodyJSON.num_inference_steps)
+        Number.isFinite(bodyJSON.num_inference_steps)
         ? bodyJSON.num_inference_steps
         : 30;
 
@@ -458,7 +458,7 @@ export async function POST(req: NextRequest) {
     ).trim();
 
     // 'windowView' variable already holds the default list or user input
-    let selectedWindowView = windowView; 
+    let selectedWindowView = windowView;
     if (windowView.includes('|')) {
       const options = windowView.split('|').filter(s => s.trim().length > 0);
       selectedWindowView = options[Math.floor(Math.random() * options.length)].trim();
@@ -545,7 +545,7 @@ export async function POST(req: NextRequest) {
       await query(
         `UPDATE external_request_audit SET gpt_template = $1 WHERE id = $2`,
         [refinedTemplate, auditId],
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     // ---- Step 2: call FAL using GPT output as prompt ----
@@ -555,39 +555,32 @@ export async function POST(req: NextRequest) {
 
     let endpointUrl: string;
     switch (model) {
-      case "qwen":
-      case "flux": {
-        endpointUrl =
-          model === "qwen"
-            ? "https://fal.run/fal-ai/qwen-image-edit"
-            : "https://fal.run/fal-ai/flux-pro/kontext";
-
-        // Prefer the data URL if we had an upload; otherwise pass the remote URL
+      case "qwen": {
+        endpointUrl = "https://fal.run/fal-ai/qwen-image-edit";
         falBody.image_url = incomingImageAsDataUrl || imageUrl!;
-        // enforce our defaults
         falBody.guidance_scale = effGuidance;
         falBody.seed = effSeed;
+        falBody.num_inference_steps = effSteps;
+        falBody.acceleration = "regular";
 
-        if (model === "qwen") {
-          falBody.num_inference_steps = effSteps;
-          falBody.acceleration = "regular";
-
-          // ⬇⬇⬇ NEW: We strictly push the original size so that the model doesn't rescale to 1440px
-          if (
-            sourceImageSize?.width &&
-            sourceImageSize?.height
-          ) {
-            falBody.image_size = {
-              width: sourceImageSize.width,
-              height: sourceImageSize.height,
-            };
-          }
+        // ⬇⬇⬇ NEW: We strictly push the original size so that the model doesn't rescale to 1440px
+        if (sourceImageSize?.width && sourceImageSize?.height) {
+          falBody.image_size = {
+            width: sourceImageSize.width,
+            height: sourceImageSize.height,
+          };
         }
-
-        if (
-          typeof bodyJSON.safety_tolerance === "number" &&
-          model === "flux"
-        ) {
+        break;
+      }
+      case "flux": {
+        endpointUrl = "https://fal.run/fal-ai/flux-2-pro/edit";
+        const img = incomingImageAsDataUrl || imageUrl!;
+        falBody.image_urls = [img];
+        falBody.guidance_scale = effGuidance;
+        falBody.seed = effSeed;
+        // Flux 2 pro usually doesn't expose strict steps or acceleration the same way, or uses defaults.
+        // We'll pass safety_tolerance if present.
+        if (typeof bodyJSON.safety_tolerance === "number") {
           falBody.safety_tolerance = bodyJSON.safety_tolerance;
         }
         break;
@@ -596,8 +589,8 @@ export async function POST(req: NextRequest) {
       case "seedream": {
         endpointUrl =
           model === "gemini"
-            ? "https://fal.run/fal-ai/nano-banana/edit"
-            : "https://fal.run/fal-ai/bytedance/seedream/v4/edit";
+            ? "https://fal.run/fal-ai/nano-banana-pro/edit"
+            : "https://fal.run/fal-ai/bytedance/seedream/v4.5/edit";
 
         const img = incomingImageAsDataUrl || imageUrl!;
         falBody.image_urls = [img];
@@ -624,7 +617,7 @@ export async function POST(req: NextRequest) {
       await query(
         `UPDATE external_request_audit SET fal_endpoint = $1 WHERE id = $2`,
         [endpointUrl, auditId],
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     // FAL call with timeout, too
@@ -652,7 +645,7 @@ export async function POST(req: NextRequest) {
             `FAL error: ${falReq.body.status} ${errorText}`.slice(0, 2000),
             auditId,
           ],
-        ).catch(() => {});
+        ).catch(() => { });
       }
       return withCORS(
         NextResponse.json(
@@ -676,7 +669,7 @@ export async function POST(req: NextRequest) {
              SET status='failed', error_message = 'FAL did not return an image'
            WHERE id=$1`,
           [auditId],
-        ).catch(() => {});
+        ).catch(() => { });
       }
       return withCORS(
         NextResponse.json(
@@ -702,7 +695,7 @@ export async function POST(req: NextRequest) {
             ),
             auditId,
           ],
-        ).catch(() => {});
+        ).catch(() => { });
       }
       return withCORS(
         NextResponse.json(
@@ -734,7 +727,7 @@ export async function POST(req: NextRequest) {
                status = 'ok'
          WHERE id = $3`,
         [finalImageUrl, imageUrlStored, auditId],
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     const durationMs = Date.now() - t0;
@@ -754,12 +747,12 @@ export async function POST(req: NextRequest) {
       e instanceof Error
         ? e.message
         : (() => {
-            try {
-              return JSON.stringify(e);
-            } catch {
-              return String(e);
-            }
-          })();
+          try {
+            return JSON.stringify(e);
+          } catch {
+            return String(e);
+          }
+        })();
 
     if (auditId) {
       await query(
@@ -771,7 +764,7 @@ export async function POST(req: NextRequest) {
                END
          WHERE id=$2`,
         [String(msg).slice(0, 2000), auditId],
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     console.error("external/generate error:", e);
